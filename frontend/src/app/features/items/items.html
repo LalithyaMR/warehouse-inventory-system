@@ -1,0 +1,388 @@
+<section class="items-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">CATALOG &amp; INVENTORY</p>
+      <h1>Items</h1>
+      <p class="page-description">Manage product details, units, and minimum stock levels.</p>
+    </div>
+    <button class="btn btn-primary add-item-button" type="button" (click)="openAddForm()">
+      <span aria-hidden="true">+</span> Add item
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="alert alert-success alert-dismissible d-flex align-items-center" role="status">
+      <span>{{ notice() }}</span>
+      <button
+        class="btn-close ms-auto"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismissNotice()"
+      ></button>
+    </div>
+  }
+
+  <div class="row g-3 item-summary">
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Total items</span>
+        <strong>{{ items().length }}</strong>
+        <span class="summary-icon total-icon" aria-hidden="true">IT</span>
+      </article>
+    </div>
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Active items</span>
+        <strong>{{ activeCount() }}</strong>
+        <span class="summary-icon active-icon" aria-hidden="true">✓</span>
+      </article>
+    </div>
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Inactive items</span>
+        <strong>{{ inactiveCount() }}</strong>
+        <span class="summary-icon inactive-icon" aria-hidden="true">—</span>
+      </article>
+    </div>
+  </div>
+
+  <section class="items-card card">
+    <div class="items-card-heading">
+      <div>
+        <h2>Item catalog</h2>
+        <p>Search and filter the items in your inventory.</p>
+      </div>
+      <span class="record-count">{{ filteredItems().length }} shown</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="item-search">Search by item name or SKU</label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="item-search"
+          class="form-control"
+          type="search"
+          placeholder="Search item name or SKU"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="category-filter">Filter by category</label>
+        <select
+          id="category-filter"
+          class="form-select"
+          [value]="selectedCategory()"
+          (change)="setCategory($event)"
+        >
+          <option>All categories</option>
+          @for (category of categories; track category) {
+            <option [value]="category">{{ category }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="status-filter">Filter by status</label>
+        <select
+          id="status-filter"
+          class="form-select"
+          [value]="selectedStatus()"
+          (change)="setStatus($event)"
+        >
+          <option>All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('name')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('name')">
+                Item Name <span aria-hidden="true">{{ sorting.indicator('name') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('sku')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('sku')">
+                SKU <span aria-hidden="true">{{ sorting.indicator('sku') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('category')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('category')">
+                Category <span aria-hidden="true">{{ sorting.indicator('category') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('unit')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('unit')">
+                Unit <span aria-hidden="true">{{ sorting.indicator('unit') }}</span>
+              </button>
+            </th>
+            <th scope="col" class="numeric-cell" [attr.aria-sort]="sorting.ariaSort('minStock')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('minStock')">
+                Minimum Stock <span aria-hidden="true">{{ sorting.indicator('minStock') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of filteredItems(); track item.id) {
+            <tr>
+              <td class="item-name">{{ item.name }}</td>
+              <td>
+                <span class="sku-code">{{ item.sku }}</span>
+              </td>
+              <td>{{ item.category }}</td>
+              <td>{{ item.unit }}</td>
+              <td class="numeric-cell">{{ item.minStock }}</td>
+              <td>
+                <span
+                  class="status-badge"
+                  [class.status-active]="item.status === 'Active'"
+                  [class.status-inactive]="item.status === 'Inactive'"
+                >
+                  <span></span>{{ item.status }}
+                </span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm action-button edit-button"
+                    type="button"
+                    [attr.aria-label]="'Edit ' + item.name"
+                    (click)="openEditForm(item)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm action-button delete-button"
+                    type="button"
+                    [attr.aria-label]="'Delete ' + item.name"
+                    (click)="requestDelete(item)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="7">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">IT</span>
+                  @if (items().length === 0) {
+                    <h3>No items yet</h3>
+                    <p>Add your first item to start building your inventory catalog.</p>
+                    <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
+                      Add your first item
+                    </button>
+                  } @else {
+                    <h3>No matching items</h3>
+                    <p>Try changing your search or filters.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="clearFilters()"
+                    >
+                      Clear filters
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (formOpen()) {
+  <div class="dialog-backdrop">
+    <section
+      class="item-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="item-dialog-title"
+      (keydown.escape)="closeForm()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">{{ itemToEdit() ? 'UPDATE CATALOG' : 'NEW CATALOG ENTRY' }}</p>
+          <h2 id="item-dialog-title">{{ itemToEdit() ? 'Edit item' : 'Add item' }}</h2>
+          <p>Enter the item details below. Fields marked with * are required.</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
+          ×
+        </button>
+      </div>
+
+      @if (saveError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="saveItem()" novalidate>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label" for="item-name">Item name <span>*</span></label>
+            <input
+              id="item-name"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('name')"
+              type="text"
+              formControlName="name"
+              maxlength="100"
+              autocomplete="off"
+              placeholder="e.g. Corrugated carton - medium"
+            />
+            @if (shouldShowError('name')) {
+              <div class="invalid-feedback">{{ validationMessage('name') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-sku">SKU <span>*</span></label>
+            <input
+              id="item-sku"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('sku')"
+              type="text"
+              formControlName="sku"
+              maxlength="40"
+              autocomplete="off"
+              placeholder="e.g. PKG-BOX-M"
+              (input)="clearSaveError()"
+            />
+            @if (shouldShowError('sku')) {
+              <div class="invalid-feedback">{{ validationMessage('sku') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-category">Category <span>*</span></label>
+            <select
+              id="item-category"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('category')"
+              formControlName="category"
+            >
+              <option value="">Select a category</option>
+              @for (category of categories; track category) {
+                <option [value]="category">{{ category }}</option>
+              }
+            </select>
+            @if (shouldShowError('category')) {
+              <div class="invalid-feedback">{{ validationMessage('category') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-unit">Unit <span>*</span></label>
+            <select
+              id="item-unit"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('unit')"
+              formControlName="unit"
+            >
+              <option value="">Select a unit</option>
+              @for (unit of units; track unit) {
+                <option [value]="unit">{{ unit }}</option>
+              }
+            </select>
+            @if (shouldShowError('unit')) {
+              <div class="invalid-feedback">{{ validationMessage('unit') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-min-stock">Minimum stock <span>*</span></label>
+            <input
+              id="item-min-stock"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('minStock')"
+              type="number"
+              min="0"
+              max="999999"
+              step="1"
+              formControlName="minStock"
+              placeholder="e.g. 20"
+            />
+            @if (shouldShowError('minStock')) {
+              <div class="invalid-feedback">{{ validationMessage('minStock') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="item-status">Status <span>*</span></label>
+            <select
+              id="item-status"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('status')"
+              formControlName="status"
+            >
+              @for (status of statuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+            @if (shouldShowError('status')) {
+              <div class="invalid-feedback">{{ validationMessage('status') }}</div>
+            }
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">
+            {{ itemToEdit() ? 'Save changes' : 'Add item' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (itemToDelete(); as item) {
+  <div class="dialog-backdrop">
+    <section
+      class="item-dialog delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-dialog-title"
+      aria-describedby="delete-dialog-description"
+      (keydown.escape)="cancelDelete()"
+    >
+      <span class="delete-warning-icon" aria-hidden="true">!</span>
+      <h2 id="delete-dialog-title">Delete this item?</h2>
+      <p id="delete-dialog-description">
+        <strong>{{ item.name }}</strong> will be removed from this catalog. This action cannot be
+        undone.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+          Cancel
+        </button>
+        <button class="btn btn-danger" type="button" (click)="confirmDelete()">Delete item</button>
+      </div>
+    </section>
+  </div>
+}

@@ -1,0 +1,388 @@
+<section class="warehouses-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">LOCATIONS &amp; OPERATIONS</p>
+      <h1>Warehouses</h1>
+      <p class="page-description">
+        Manage warehouse locations and the people responsible for them.
+      </p>
+    </div>
+    <button class="btn btn-primary add-warehouse-button" type="button" (click)="openAddForm()">
+      <span aria-hidden="true">+</span> Add warehouse
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="alert alert-success alert-dismissible d-flex align-items-center" role="status">
+      <span>{{ notice() }}</span>
+      <button
+        class="btn-close ms-auto"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismissNotice()"
+      ></button>
+    </div>
+  }
+
+  <div class="row g-3 warehouse-summary">
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Total warehouses</span>
+        <strong>{{ warehouses().length }}</strong>
+        <span class="summary-icon total-icon" aria-hidden="true">WH</span>
+      </article>
+    </div>
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Active locations</span>
+        <strong>{{ activeCount() }}</strong>
+        <span class="summary-icon active-icon" aria-hidden="true">✓</span>
+      </article>
+    </div>
+    <div class="col-12 col-sm-4">
+      <article class="summary-card card h-100">
+        <span class="summary-label">Inactive locations</span>
+        <strong>{{ inactiveCount() }}</strong>
+        <span class="summary-icon inactive-icon" aria-hidden="true">—</span>
+      </article>
+    </div>
+  </div>
+
+  <section class="warehouses-card card">
+    <div class="warehouses-card-heading">
+      <div>
+        <h2>Warehouse directory</h2>
+        <p>Search your locations or filter by status.</p>
+      </div>
+      <span class="record-count">{{ filteredWarehouses().length }} shown</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="warehouse-search">
+          Search by warehouse name, code, or location
+        </label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="warehouse-search"
+          class="form-control"
+          type="search"
+          placeholder="Search name, code, or location"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="warehouse-status-filter">Filter by status</label>
+        <select
+          id="warehouse-status-filter"
+          class="form-select"
+          [value]="selectedStatus()"
+          (change)="setStatus($event)"
+        >
+          <option>All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('name')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('name')">
+                Warehouse Name <span aria-hidden="true">{{ sorting.indicator('name') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('code')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('code')">
+                Warehouse Code <span aria-hidden="true">{{ sorting.indicator('code') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('location')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('location')">
+                Location <span aria-hidden="true">{{ sorting.indicator('location') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('managerName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('managerName')"
+              >
+                Manager Name <span aria-hidden="true">{{ sorting.indicator('managerName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('contactNumber')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('contactNumber')"
+              >
+                Contact Number
+                <span aria-hidden="true">{{ sorting.indicator('contactNumber') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (warehouse of filteredWarehouses(); track warehouse.id) {
+            <tr>
+              <td class="warehouse-name">{{ warehouse.name }}</td>
+              <td>
+                <span class="warehouse-code">{{ warehouse.code }}</span>
+              </td>
+              <td class="location-cell">{{ warehouse.location }}</td>
+              <td>{{ warehouse.managerName }}</td>
+              <td>{{ warehouse.contactNumber }}</td>
+              <td>
+                <span
+                  class="status-badge"
+                  [class.status-active]="warehouse.status === 'Active'"
+                  [class.status-inactive]="warehouse.status === 'Inactive'"
+                >
+                  <span></span>{{ warehouse.status }}
+                </span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm action-button edit-button"
+                    type="button"
+                    [attr.aria-label]="'Edit ' + warehouse.name"
+                    (click)="openEditForm(warehouse)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm action-button delete-button"
+                    type="button"
+                    [attr.aria-label]="'Delete ' + warehouse.name"
+                    (click)="requestDelete(warehouse)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="7">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">WH</span>
+                  @if (warehouses().length === 0) {
+                    <h3>No warehouses yet</h3>
+                    <p>Add your first warehouse to start organizing stock locations.</p>
+                    <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
+                      Add your first warehouse
+                    </button>
+                  } @else {
+                    <h3>No matching warehouses</h3>
+                    <p>Try changing your search or status filter.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="clearFilters()"
+                    >
+                      Clear filters
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (formOpen()) {
+  <div class="dialog-backdrop">
+    <section
+      class="warehouse-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="warehouse-dialog-title"
+      (keydown.escape)="closeForm()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">{{ warehouseToEdit() ? 'UPDATE LOCATION' : 'NEW LOCATION' }}</p>
+          <h2 id="warehouse-dialog-title">
+            {{ warehouseToEdit() ? 'Edit warehouse' : 'Add warehouse' }}
+          </h2>
+          <p>Enter the warehouse details. All fields are required.</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
+          ×
+        </button>
+      </div>
+
+      @if (saveError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="saveWarehouse()" novalidate>
+        <div class="row g-3">
+          <div class="col-12 col-md-7">
+            <label class="form-label" for="warehouse-name">Warehouse name <span>*</span></label>
+            <input
+              id="warehouse-name"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('name')"
+              type="text"
+              formControlName="name"
+              maxlength="100"
+              autocomplete="organization"
+              placeholder="e.g. North Fulfillment Hub"
+            />
+            @if (shouldShowError('name')) {
+              <div class="invalid-feedback">{{ validationMessage('name') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-5">
+            <label class="form-label" for="warehouse-code">Warehouse code <span>*</span></label>
+            <input
+              id="warehouse-code"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('code')"
+              type="text"
+              formControlName="code"
+              maxlength="24"
+              autocomplete="off"
+              placeholder="e.g. WH-NORTH"
+              (input)="clearSaveError()"
+            />
+            @if (shouldShowError('code')) {
+              <div class="invalid-feedback">{{ validationMessage('code') }}</div>
+            }
+          </div>
+
+          <div class="col-12">
+            <label class="form-label" for="warehouse-location">Location <span>*</span></label>
+            <input
+              id="warehouse-location"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('location')"
+              type="text"
+              formControlName="location"
+              maxlength="160"
+              autocomplete="street-address"
+              placeholder="Street address, city, and region"
+            />
+            @if (shouldShowError('location')) {
+              <div class="invalid-feedback">{{ validationMessage('location') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="warehouse-manager">Manager name <span>*</span></label>
+            <input
+              id="warehouse-manager"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('managerName')"
+              type="text"
+              formControlName="managerName"
+              maxlength="100"
+              autocomplete="name"
+              placeholder="e.g. Jordan Lee"
+            />
+            @if (shouldShowError('managerName')) {
+              <div class="invalid-feedback">{{ validationMessage('managerName') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="warehouse-contact">Contact number <span>*</span></label>
+            <input
+              id="warehouse-contact"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('contactNumber')"
+              type="tel"
+              formControlName="contactNumber"
+              maxlength="21"
+              autocomplete="tel"
+              placeholder="e.g. +1 (303) 555-0142"
+            />
+            @if (shouldShowError('contactNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('contactNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="warehouse-status">Status <span>*</span></label>
+            <select
+              id="warehouse-status"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('status')"
+              formControlName="status"
+            >
+              @for (status of statuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+            @if (shouldShowError('status')) {
+              <div class="invalid-feedback">{{ validationMessage('status') }}</div>
+            }
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">
+            {{ warehouseToEdit() ? 'Save changes' : 'Add warehouse' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (warehouseToDelete(); as warehouse) {
+  <div class="dialog-backdrop">
+    <section
+      class="warehouse-dialog delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-dialog-title"
+      aria-describedby="delete-dialog-description"
+      (keydown.escape)="cancelDelete()"
+    >
+      <span class="delete-warning-icon" aria-hidden="true">!</span>
+      <h2 id="delete-dialog-title">Delete this warehouse?</h2>
+      <p id="delete-dialog-description">
+        <strong>{{ warehouse.name }}</strong> will be removed from this directory. This action
+        cannot be undone.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+          Cancel
+        </button>
+        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
+          Delete warehouse
+        </button>
+      </div>
+    </section>
+  </div>
+}

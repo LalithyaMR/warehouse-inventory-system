@@ -1,0 +1,526 @@
+<section class="receipts-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">INBOUND INVENTORY</p>
+      <h1>Stock Receipts</h1>
+      <p class="page-description">
+        Record deliveries from suppliers and keep an audit-friendly history.
+      </p>
+    </div>
+    <button class="btn btn-primary add-receipt-button" type="button" (click)="openAddForm()">
+      <span aria-hidden="true">+</span> New Stock Receipt
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="alert alert-success alert-dismissible d-flex align-items-center" role="status">
+      <span>{{ notice() }}</span>
+      <button
+        class="btn-close ms-auto"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismissNotice()"
+      ></button>
+    </div>
+  }
+
+  <section class="receipts-card card">
+    <div class="receipts-card-heading">
+      <div>
+        <h2>Receipt history</h2>
+        <p>
+          {{ receipts().length }} receipts recorded · {{ totalQuantity() | number: '1.0-2' }} units
+          received
+        </p>
+      </div>
+      <span class="record-count">{{ filteredReceipts().length }} shown</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="receipt-search">
+          Search receipt number, item name, or supplier
+        </label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="receipt-search"
+          class="form-control"
+          type="search"
+          placeholder="Search receipt, item, or supplier"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control warehouse-filter">
+        <label class="visually-hidden" for="receipt-warehouse-filter">Filter by warehouse</label>
+        <select
+          id="receipt-warehouse-filter"
+          class="form-select"
+          [value]="selectedWarehouseId()"
+          (change)="setWarehouse($event)"
+        >
+          <option value="all">All warehouses</option>
+          @for (warehouse of warehouses(); track warehouse.id) {
+            <option [value]="warehouse.id">{{ warehouse.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="date-filter">
+        <label class="visually-hidden" for="receipt-date-from">From date</label>
+        <input
+          id="receipt-date-from"
+          class="form-control"
+          type="date"
+          aria-label="From date"
+          [value]="dateFrom()"
+          (change)="setDateFrom($event)"
+        />
+        <span aria-hidden="true">to</span>
+        <label class="visually-hidden" for="receipt-date-to">To date</label>
+        <input
+          id="receipt-date-to"
+          class="form-control"
+          type="date"
+          aria-label="To date"
+          [value]="dateTo()"
+          (change)="setDateTo($event)"
+        />
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+    @if (dateRangeInvalid()) {
+      <p class="date-filter-error" role="alert">
+        The start date must be on or before the end date.
+      </p>
+    }
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('receiptNumber')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('receiptNumber')"
+              >
+                Receipt Number
+                <span aria-hidden="true">{{ sorting.indicator('receiptNumber') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('receiptDate')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('receiptDate')"
+              >
+                Receipt Date <span aria-hidden="true">{{ sorting.indicator('receiptDate') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemName')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemName')">
+                Item Name <span aria-hidden="true">{{ sorting.indicator('itemName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemSku')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemSku')">
+                SKU <span aria-hidden="true">{{ sorting.indicator('itemSku') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('warehouseName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('warehouseName')"
+              >
+                Warehouse <span aria-hidden="true">{{ sorting.indicator('warehouseName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('supplierName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('supplierName')"
+              >
+                Supplier <span aria-hidden="true">{{ sorting.indicator('supplierName') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('quantityReceived')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('quantityReceived')"
+              >
+                Quantity Received
+                <span aria-hidden="true">{{ sorting.indicator('quantityReceived') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (receipt of filteredReceipts(); track receipt.id) {
+            <tr>
+              <td>
+                <span class="receipt-number">{{ receipt.receiptNumber }}</span>
+              </td>
+              <td>{{ receipt.receiptDate | date: 'mediumDate' }}</td>
+              <td class="item-name">{{ receipt.itemName }}</td>
+              <td>
+                <span class="sku-code">{{ receipt.itemSku }}</span>
+              </td>
+              <td>{{ receipt.warehouseName }}</td>
+              <td>{{ receipt.supplierName }}</td>
+              <td class="numeric-cell">
+                {{ receipt.quantityReceived | number: '1.0-3' }}
+                @if (receipt.itemUnit) {
+                  <span class="quantity-unit">{{ receipt.itemUnit }}</span>
+                }
+              </td>
+              <td>
+                <span class="badge rounded-pill text-bg-success">{{ receipt.status }}</span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    [attr.aria-label]="'View ' + receipt.receiptNumber"
+                    (click)="viewReceipt(receipt)"
+                  >
+                    View
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-success"
+                    type="button"
+                    [attr.aria-label]="'Edit ' + receipt.receiptNumber"
+                    (click)="openEditForm(receipt)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    type="button"
+                    [attr.aria-label]="'Delete ' + receipt.receiptNumber"
+                    (click)="requestDelete(receipt)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="9">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">IN</span>
+                  @if (receipts().length === 0) {
+                    <h3>No stock receipts yet</h3>
+                    <p>Record your first delivery to start building receipt history.</p>
+                    <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
+                      New Stock Receipt
+                    </button>
+                  } @else {
+                    <h3>No matching receipts</h3>
+                    <p>Try changing your search, warehouse, or date range.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="clearFilters()"
+                    >
+                      Clear filters
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (formOpen()) {
+  <div class="dialog-backdrop">
+    <section
+      class="receipt-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="receipt-dialog-title"
+      (keydown.escape)="closeForm()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">
+            {{ receiptToEdit() ? 'UPDATE INBOUND RECORD' : 'NEW INBOUND RECORD' }}
+          </p>
+          <h2 id="receipt-dialog-title">
+            {{ receiptToEdit() ? 'Edit stock receipt' : 'New stock receipt' }}
+          </h2>
+          <p>Enter the delivery details. Required fields are marked with *.</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
+          ×
+        </button>
+      </div>
+
+      @if (saveError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="saveReceipt()" novalidate>
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-number">Receipt number <span>*</span></label>
+            <input
+              id="receipt-number"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('receiptNumber')"
+              type="text"
+              formControlName="receiptNumber"
+              maxlength="30"
+              autocomplete="off"
+              (input)="clearSaveError()"
+            />
+            @if (shouldShowError('receiptNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('receiptNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-date">Receipt date <span>*</span></label>
+            <input
+              id="receipt-date"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('receiptDate')"
+              type="date"
+              formControlName="receiptDate"
+            />
+            @if (shouldShowError('receiptDate')) {
+              <div class="invalid-feedback">{{ validationMessage('receiptDate') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-item">Item <span>*</span></label>
+            <select
+              id="receipt-item"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('itemId')"
+              formControlName="itemId"
+            >
+              <option [ngValue]="0">Select an item</option>
+              @for (item of items(); track item.id) {
+                <option [ngValue]="item.id">{{ item.name }} ({{ item.sku }})</option>
+              }
+            </select>
+            @if (shouldShowError('itemId')) {
+              <div class="invalid-feedback">{{ validationMessage('itemId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-warehouse">Warehouse <span>*</span></label>
+            <select
+              id="receipt-warehouse"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('warehouseId')"
+              formControlName="warehouseId"
+            >
+              <option [ngValue]="0">Select a warehouse</option>
+              @for (warehouse of warehouses(); track warehouse.id) {
+                <option [ngValue]="warehouse.id">
+                  {{ warehouse.name }} ({{ warehouse.code }})
+                </option>
+              }
+            </select>
+            @if (shouldShowError('warehouseId')) {
+              <div class="invalid-feedback">{{ validationMessage('warehouseId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-supplier">Supplier name <span>*</span></label>
+            <input
+              id="receipt-supplier"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('supplierName')"
+              type="text"
+              formControlName="supplierName"
+              maxlength="100"
+              autocomplete="organization"
+              placeholder="e.g. Summit Packaging"
+            />
+            @if (shouldShowError('supplierName')) {
+              <div class="invalid-feedback">{{ validationMessage('supplierName') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="receipt-quantity">
+              Quantity received <span>*</span>
+            </label>
+            <input
+              id="receipt-quantity"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('quantityReceived')"
+              type="number"
+              min="0"
+              step="any"
+              formControlName="quantityReceived"
+              placeholder="Must be greater than zero"
+            />
+            @if (shouldShowError('quantityReceived')) {
+              <div class="invalid-feedback">{{ validationMessage('quantityReceived') }}</div>
+            }
+          </div>
+
+          <div class="col-12">
+            <label class="form-label" for="receipt-reference">Reference number</label>
+            <input
+              id="receipt-reference"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('referenceNumber')"
+              type="text"
+              formControlName="referenceNumber"
+              maxlength="60"
+              autocomplete="off"
+              placeholder="Optional purchase order or supplier reference"
+            />
+            @if (shouldShowError('referenceNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('referenceNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12">
+            <label class="form-label" for="receipt-notes">Notes</label>
+            <textarea
+              id="receipt-notes"
+              class="form-control notes-input"
+              [class.is-invalid]="shouldShowError('notes')"
+              formControlName="notes"
+              maxlength="500"
+              rows="3"
+              placeholder="Optional notes about this delivery"
+            ></textarea>
+            @if (shouldShowError('notes')) {
+              <div class="invalid-feedback">{{ validationMessage('notes') }}</div>
+            }
+          </div>
+        </div>
+
+        <p class="balance-note">Recording a receipt here does not change stock balances.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">
+            {{ receiptToEdit() ? 'Save changes' : 'Record receipt' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (receiptToView(); as receipt) {
+  <div class="dialog-backdrop">
+    <section
+      class="receipt-dialog view-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="view-receipt-title"
+      (keydown.escape)="closeView()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">RECEIPT DETAILS</p>
+          <h2 id="view-receipt-title">{{ receipt.receiptNumber }}</h2>
+          <p>{{ receipt.receiptDate | date: 'fullDate' }} · {{ receipt.status }}</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close details" (click)="closeView()">
+          ×
+        </button>
+      </div>
+      <dl class="receipt-details">
+        <div>
+          <dt>Item</dt>
+          <dd>
+            {{ receipt.itemName }} <span>({{ receipt.itemSku }})</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Warehouse</dt>
+          <dd>{{ receipt.warehouseName }}</dd>
+        </div>
+        <div>
+          <dt>Supplier</dt>
+          <dd>{{ receipt.supplierName }}</dd>
+        </div>
+        <div>
+          <dt>Quantity received</dt>
+          <dd>{{ receipt.quantityReceived | number: '1.0-3' }} {{ receipt.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Reference number</dt>
+          <dd>{{ receipt.referenceNumber || '—' }}</dd>
+        </div>
+        <div class="notes-detail">
+          <dt>Notes</dt>
+          <dd>{{ receipt.notes || 'No notes added.' }}</dd>
+        </div>
+      </dl>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="closeView()">Close</button>
+        <button class="btn btn-primary" type="button" (click)="closeView(); openEditForm(receipt)">
+          Edit receipt
+        </button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (receiptToDelete(); as receipt) {
+  <div class="dialog-backdrop">
+    <section
+      class="receipt-dialog delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-receipt-title"
+      aria-describedby="delete-receipt-description"
+      (keydown.escape)="cancelDelete()"
+    >
+      <span class="delete-warning-icon" aria-hidden="true">!</span>
+      <h2 id="delete-receipt-title">Delete this receipt?</h2>
+      <p id="delete-receipt-description">
+        <strong>{{ receipt.receiptNumber }}</strong> will be removed from receipt history. This does
+        not change stock balances.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+          Cancel
+        </button>
+        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
+          Delete receipt
+        </button>
+      </div>
+    </section>
+  </div>
+}

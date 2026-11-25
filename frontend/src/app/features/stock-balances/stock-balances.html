@@ -1,0 +1,515 @@
+<section class="balances-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">ON-HAND INVENTORY</p>
+      <h1>Stock Balances</h1>
+      <p class="page-description">
+        Review available stock by item and warehouse, including recorded movements.
+      </p>
+    </div>
+  </div>
+
+  <section class="row g-3 summary-grid" aria-label="Stock balance summary">
+    <div class="col-12 col-sm-6 col-xl-3">
+      <article class="summary-card">
+        <span class="summary-icon items-icon" aria-hidden="true">IT</span>
+        <span class="summary-label">Total Items</span>
+        <strong>{{ totalItems() | number }}</strong>
+      </article>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <article class="summary-card">
+        <span class="summary-icon units-icon" aria-hidden="true">QTY</span>
+        <span class="summary-label">Total Available Units</span>
+        <strong>{{ totalAvailableUnits() | number: '1.0-2' }}</strong>
+      </article>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <article class="summary-card">
+        <span class="summary-icon low-icon" aria-hidden="true">LOW</span>
+        <span class="summary-label">Low Stock Items</span>
+        <strong>{{ lowStockItems() | number }}</strong>
+      </article>
+    </div>
+    <div class="col-12 col-sm-6 col-xl-3">
+      <article class="summary-card">
+        <span class="summary-icon out-icon" aria-hidden="true">OUT</span>
+        <span class="summary-label">Out of Stock Items</span>
+        <strong>{{ outOfStockItems() | number }}</strong>
+      </article>
+    </div>
+  </section>
+  <p class="summary-help">
+    Summary cards combine each item's visible warehouse balances; table status is specific to each
+    warehouse.
+  </p>
+
+  <section class="balances-card card">
+    <div class="balances-card-heading">
+      <div>
+        <h2>Inventory by warehouse</h2>
+        <p>
+          Available = opening + receipts + completed transfers in − issues − completed transfers out
+        </p>
+      </div>
+      <span class="record-count">{{ filteredBalances().length }} balances</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="balance-search">Search item name or SKU</label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="balance-search"
+          class="form-control"
+          type="search"
+          placeholder="Search item or SKU"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="balance-warehouse-filter">Filter by warehouse</label>
+        <select
+          id="balance-warehouse-filter"
+          class="form-select"
+          [value]="selectedWarehouseId()"
+          (change)="setWarehouse($event)"
+        >
+          <option value="all">All warehouses</option>
+          @for (warehouse of warehouses(); track warehouse.id) {
+            <option [value]="warehouse.id">{{ warehouse.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="balance-category-filter">Filter by category</label>
+        <select
+          id="balance-category-filter"
+          class="form-select"
+          [value]="selectedCategory()"
+          (change)="setCategory($event)"
+        >
+          <option value="all">All categories</option>
+          @for (category of categories(); track category) {
+            <option [value]="category">{{ category }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="balance-status-filter">Filter by stock status</label>
+        <select
+          id="balance-status-filter"
+          class="form-select"
+          [value]="selectedStatus()"
+          (change)="setStatus($event)"
+        >
+          <option value="all">All stock statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemName')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemName')">
+                Item Name <span aria-hidden="true">{{ sorting.indicator('itemName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('sku')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('sku')">
+                SKU <span aria-hidden="true">{{ sorting.indicator('sku') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('category')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('category')">
+                Category <span aria-hidden="true">{{ sorting.indicator('category') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('warehouseName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('warehouseName')"
+              >
+                Warehouse <span aria-hidden="true">{{ sorting.indicator('warehouseName') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('openingStock')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('openingStock')"
+              >
+                Opening Stock
+                <span aria-hidden="true">{{ sorting.indicator('openingStock') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('totalStockReceived')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('totalStockReceived')"
+              >
+                Total Stock Received
+                <span aria-hidden="true">{{ sorting.indicator('totalStockReceived') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('totalStockIssued')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('totalStockIssued')"
+              >
+                Total Stock Issued
+                <span aria-hidden="true">{{ sorting.indicator('totalStockIssued') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('totalTransfersIn')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('totalTransfersIn')"
+              >
+                Transfers In
+                <span aria-hidden="true">{{ sorting.indicator('totalTransfersIn') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('totalTransfersOut')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('totalTransfersOut')"
+              >
+                Transfers Out
+                <span aria-hidden="true">{{ sorting.indicator('totalTransfersOut') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('availableStock')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('availableStock')"
+              >
+                Available Stock
+                <span aria-hidden="true">{{ sorting.indicator('availableStock') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('minStockLevel')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('minStockLevel')"
+              >
+                Minimum Stock Level
+                <span aria-hidden="true">{{ sorting.indicator('minStockLevel') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Stock Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (balance of filteredBalances(); track balance.itemId + ':' + balance.warehouseId) {
+            <tr>
+              <td class="item-name">{{ balance.itemName }}</td>
+              <td>
+                <span class="sku-code">{{ balance.sku }}</span>
+              </td>
+              <td>{{ balance.category }}</td>
+              <td>{{ balance.warehouseName }}</td>
+              <td class="numeric-cell">{{ balance.openingStock | number: '1.0-3' }}</td>
+              <td class="numeric-cell">{{ balance.totalStockReceived | number: '1.0-3' }}</td>
+              <td class="numeric-cell">{{ balance.totalStockIssued | number: '1.0-3' }}</td>
+              <td class="numeric-cell">{{ balance.totalTransfersIn | number: '1.0-3' }}</td>
+              <td class="numeric-cell">{{ balance.totalTransfersOut | number: '1.0-3' }}</td>
+              <td class="numeric-cell available-cell">
+                {{ balance.availableStock | number: '1.0-3' }}
+                @if (balance.itemUnit) {
+                  <span class="quantity-unit">{{ balance.itemUnit }}</span>
+                }
+              </td>
+              <td class="numeric-cell">{{ balance.minStockLevel | number: '1.0-3' }}</td>
+              <td>
+                <span
+                  class="badge rounded-pill"
+                  [class.text-bg-success]="balance.status === 'In Stock'"
+                  [class.text-bg-warning]="balance.status === 'Low Stock'"
+                  [class.text-bg-danger]="balance.status === 'Out of Stock'"
+                >
+                  {{ balance.status }}
+                </span>
+              </td>
+              <td>
+                <button
+                  class="btn btn-sm btn-outline-secondary details-button"
+                  type="button"
+                  [attr.aria-label]="
+                    'View details for ' + balance.itemName + ' at ' + balance.warehouseName
+                  "
+                  (click)="viewDetails(balance)"
+                >
+                  View Details
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="13">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">QTY</span>
+                  <h3>No matching balances</h3>
+                  <p>Try changing your search or filters to see other item balances.</p>
+                  <button
+                    class="btn btn-outline-secondary btn-sm"
+                    type="button"
+                    (click)="clearFilters()"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (selectedBalance(); as balance) {
+  <div class="dialog-backdrop">
+    <section
+      class="balance-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="balance-details-title"
+      (keydown.escape)="closeDetails()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">STOCK MOVEMENT SUMMARY</p>
+          <h2 id="balance-details-title">{{ balance.itemName }}</h2>
+          <p>{{ balance.sku }} · {{ balance.warehouseName }}</p>
+        </div>
+        <button
+          class="dialog-close"
+          type="button"
+          aria-label="Close details"
+          (click)="closeDetails()"
+        >
+          ×
+        </button>
+      </div>
+
+      <dl class="balance-details">
+        <div>
+          <dt>Opening stock</dt>
+          <dd>{{ balance.openingStock | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Total stock received</dt>
+          <dd>{{ balance.totalStockReceived | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Total stock issued</dt>
+          <dd>{{ balance.totalStockIssued | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Completed transfers in</dt>
+          <dd>{{ balance.totalTransfersIn | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Completed transfers out</dt>
+          <dd>{{ balance.totalTransfersOut | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Available stock</dt>
+          <dd>{{ balance.availableStock | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Minimum stock level</dt>
+          <dd>{{ balance.minStockLevel | number: '1.0-3' }} {{ balance.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Stock status</dt>
+          <dd>
+            <span
+              class="badge rounded-pill"
+              [class.text-bg-success]="balance.status === 'In Stock'"
+              [class.text-bg-warning]="balance.status === 'Low Stock'"
+              [class.text-bg-danger]="balance.status === 'Out of Stock'"
+            >
+              {{ balance.status }}
+            </span>
+          </dd>
+        </div>
+      </dl>
+
+      <div class="movement-sections">
+        <section>
+          <h3>Receipts</h3>
+          @if (balance.receipts.length > 0) {
+            <div class="table-responsive movement-table">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Receipt</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="numeric-cell">Quantity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (receipt of balance.receipts; track receipt.id) {
+                    <tr>
+                      <td>{{ receipt.receiptNumber }}</td>
+                      <td>{{ receipt.receiptDate | date: 'mediumDate' }}</td>
+                      <td class="numeric-cell">{{ receipt.quantityReceived | number: '1.0-3' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="no-movements">No receipts recorded for this item at this warehouse.</p>
+          }
+        </section>
+
+        <section>
+          <h3>Issues</h3>
+          @if (balance.issues.length > 0) {
+            <div class="table-responsive movement-table">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Issue</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="numeric-cell">Quantity</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (issue of balance.issues; track issue.id) {
+                    <tr>
+                      <td>{{ issue.issueNumber }}</td>
+                      <td>{{ issue.issueDate | date: 'mediumDate' }}</td>
+                      <td class="numeric-cell">{{ issue.quantityIssued | number: '1.0-3' }}</td>
+                      <td>
+                        <span
+                          class="badge rounded-pill"
+                          [class.text-bg-success]="issue.status === 'Issued'"
+                          [class.text-bg-secondary]="issue.status === 'Cancelled'"
+                        >
+                          {{ issue.status }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="no-movements">No issues recorded for this item at this warehouse.</p>
+          }
+        </section>
+
+        <section>
+          <h3>Transfers</h3>
+          @if (balance.transfers.length > 0) {
+            <div class="table-responsive movement-table">
+              <table class="table table-sm mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Transfer</th>
+                    <th scope="col">Direction / warehouse</th>
+                    <th scope="col">Date</th>
+                    <th scope="col" class="numeric-cell">Quantity</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (transfer of balance.transfers; track transfer.id) {
+                    <tr>
+                      <td>{{ transfer.transferNumber }}</td>
+                      <td>{{ transferDirection(transfer, balance) }}</td>
+                      <td>{{ transfer.transferDate | date: 'mediumDate' }}</td>
+                      <td class="numeric-cell">{{ transfer.quantity | number: '1.0-3' }}</td>
+                      <td>
+                        <span
+                          class="badge rounded-pill"
+                          [class.text-bg-success]="transfer.status === 'Completed'"
+                          [class.text-bg-warning]="transfer.status === 'Pending'"
+                          [class.text-bg-info]="transfer.status === 'In Transit'"
+                          [class.text-bg-secondary]="transfer.status === 'Cancelled'"
+                        >
+                          {{ transfer.status }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="no-movements">No transfers recorded for this item at this warehouse.</p>
+          }
+        </section>
+      </div>
+
+      <p class="balance-note">
+        Mock balances include receipts, issued quantities, and completed transfers. Pending, in
+        transit, and cancelled transfers do not change stock.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="closeDetails()">
+          Close
+        </button>
+      </div>
+    </section>
+  </div>
+}

@@ -1,0 +1,583 @@
+<section class="transfers-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">BETWEEN LOCATIONS</p>
+      <h1>Stock Transfers</h1>
+      <p class="page-description">
+        Track inventory moving between warehouses from dispatch through arrival.
+      </p>
+    </div>
+    <button class="btn btn-primary add-transfer-button" type="button" (click)="openAddForm()">
+      <span aria-hidden="true">+</span> New Stock Transfer
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="alert alert-success alert-dismissible d-flex align-items-center" role="status">
+      <span>{{ notice() }}</span>
+      <button
+        class="btn-close ms-auto"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismissNotice()"
+      ></button>
+    </div>
+  }
+
+  <section class="transfers-card card">
+    <div class="transfers-card-heading">
+      <div>
+        <h2>Transfer history</h2>
+        <p>
+          {{ transfers().length }} transfers recorded ·
+          {{ completedQuantity() | number: '1.0-2' }} units completed
+        </p>
+      </div>
+      <span class="record-count">{{ filteredTransfers().length }} shown</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="transfer-search">
+          Search transfer number or item name
+        </label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="transfer-search"
+          class="form-control"
+          type="search"
+          placeholder="Search transfer or item"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="transfer-source-filter"
+          >Filter by source warehouse</label
+        >
+        <select
+          id="transfer-source-filter"
+          class="form-select"
+          [value]="selectedSourceWarehouseId()"
+          (change)="setSourceWarehouse($event)"
+        >
+          <option value="all">All source warehouses</option>
+          @for (warehouse of warehouses(); track warehouse.id) {
+            <option [value]="warehouse.id">{{ warehouse.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="transfer-destination-filter">
+          Filter by destination warehouse
+        </label>
+        <select
+          id="transfer-destination-filter"
+          class="form-select"
+          [value]="selectedDestinationWarehouseId()"
+          (change)="setDestinationWarehouse($event)"
+        >
+          <option value="all">All destination warehouses</option>
+          @for (warehouse of warehouses(); track warehouse.id) {
+            <option [value]="warehouse.id">{{ warehouse.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control status-filter">
+        <label class="visually-hidden" for="transfer-status-filter">Filter by status</label>
+        <select
+          id="transfer-status-filter"
+          class="form-select"
+          [value]="selectedStatus()"
+          (change)="setStatus($event)"
+        >
+          <option value="all">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </div>
+      <div class="date-filter">
+        <label class="visually-hidden" for="transfer-date-from">From date</label>
+        <input
+          id="transfer-date-from"
+          class="form-control"
+          type="date"
+          aria-label="From date"
+          [value]="dateFrom()"
+          (change)="setDateFrom($event)"
+        />
+        <span aria-hidden="true">to</span>
+        <label class="visually-hidden" for="transfer-date-to">To date</label>
+        <input
+          id="transfer-date-to"
+          class="form-control"
+          type="date"
+          aria-label="To date"
+          [value]="dateTo()"
+          (change)="setDateTo($event)"
+        />
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+    @if (dateRangeInvalid()) {
+      <p class="date-filter-error" role="alert">
+        The start date must be on or before the end date.
+      </p>
+    }
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('transferNumber')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('transferNumber')"
+              >
+                Transfer Number
+                <span aria-hidden="true">{{ sorting.indicator('transferNumber') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('transferDate')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('transferDate')"
+              >
+                Transfer Date
+                <span aria-hidden="true">{{ sorting.indicator('transferDate') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemName')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemName')">
+                Item Name <span aria-hidden="true">{{ sorting.indicator('itemName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemSku')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemSku')">
+                SKU <span aria-hidden="true">{{ sorting.indicator('itemSku') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('sourceWarehouseName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('sourceWarehouseName')"
+              >
+                Source Warehouse
+                <span aria-hidden="true">{{ sorting.indicator('sourceWarehouseName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('destinationWarehouseName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('destinationWarehouseName')"
+              >
+                Destination Warehouse
+                <span aria-hidden="true">{{ sorting.indicator('destinationWarehouseName') }}</span>
+              </button>
+            </th>
+            <th scope="col" class="numeric-cell" [attr.aria-sort]="sorting.ariaSort('quantity')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('quantity')">
+                Quantity Transferred
+                <span aria-hidden="true">{{ sorting.indicator('quantity') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (transfer of filteredTransfers(); track transfer.id) {
+            <tr>
+              <td>
+                <span class="transfer-number">{{ transfer.transferNumber }}</span>
+              </td>
+              <td>{{ transfer.transferDate | date: 'mediumDate' }}</td>
+              <td class="item-name">{{ transfer.itemName }}</td>
+              <td>
+                <span class="sku-code">{{ transfer.itemSku }}</span>
+              </td>
+              <td>{{ transfer.sourceWarehouseName }}</td>
+              <td>{{ transfer.destinationWarehouseName }}</td>
+              <td class="numeric-cell">
+                {{ transfer.quantity | number: '1.0-3' }}
+                @if (transfer.itemUnit) {
+                  <span class="quantity-unit">{{ transfer.itemUnit }}</span>
+                }
+              </td>
+              <td>
+                <span
+                  class="badge rounded-pill"
+                  [class.text-bg-warning]="transfer.status === 'Pending'"
+                  [class.text-bg-info]="transfer.status === 'In Transit'"
+                  [class.text-bg-success]="transfer.status === 'Completed'"
+                  [class.text-bg-secondary]="transfer.status === 'Cancelled'"
+                >
+                  {{ transfer.status }}
+                </span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    [attr.aria-label]="'View ' + transfer.transferNumber"
+                    (click)="viewTransfer(transfer)"
+                  >
+                    View
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-success"
+                    type="button"
+                    [attr.aria-label]="'Edit ' + transfer.transferNumber"
+                    (click)="openEditForm(transfer)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    type="button"
+                    [attr.aria-label]="'Delete ' + transfer.transferNumber"
+                    (click)="requestDelete(transfer)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="9">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">MOVE</span>
+                  @if (transfers().length === 0) {
+                    <h3>No stock transfers yet</h3>
+                    <p>Create a transfer to start tracking movement between warehouses.</p>
+                    <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
+                      New Stock Transfer
+                    </button>
+                  } @else {
+                    <h3>No matching transfers</h3>
+                    <p>Try changing your search, warehouse, status, or date range.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="clearFilters()"
+                    >
+                      Clear filters
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (formOpen()) {
+  <div class="dialog-backdrop">
+    <section
+      class="transfer-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="transfer-dialog-title"
+      (keydown.escape)="closeForm()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">
+            {{ transferToEdit() ? 'UPDATE TRANSFER' : 'NEW TRANSFER' }}
+          </p>
+          <h2 id="transfer-dialog-title">
+            {{ transferToEdit() ? 'Edit stock transfer' : 'New stock transfer' }}
+          </h2>
+          <p>Enter the movement details. Required fields are marked with *.</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
+          ×
+        </button>
+      </div>
+
+      @if (saveError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="saveTransfer()" novalidate>
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-number">Transfer number <span>*</span></label>
+            <input
+              id="transfer-number"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('transferNumber')"
+              type="text"
+              formControlName="transferNumber"
+              readonly
+            />
+            @if (shouldShowError('transferNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('transferNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-date">Transfer date <span>*</span></label>
+            <input
+              id="transfer-date"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('transferDate')"
+              type="date"
+              formControlName="transferDate"
+            />
+            @if (shouldShowError('transferDate')) {
+              <div class="invalid-feedback">{{ validationMessage('transferDate') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-item">Item <span>*</span></label>
+            <select
+              id="transfer-item"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('itemId')"
+              formControlName="itemId"
+            >
+              <option [ngValue]="0">Select an item</option>
+              @for (item of items(); track item.id) {
+                <option [ngValue]="item.id">{{ item.name }} ({{ item.sku }})</option>
+              }
+            </select>
+            @if (shouldShowError('itemId')) {
+              <div class="invalid-feedback">{{ validationMessage('itemId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-quantity">Quantity <span>*</span></label>
+            <input
+              id="transfer-quantity"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('quantity')"
+              type="number"
+              min="0"
+              step="any"
+              formControlName="quantity"
+              placeholder="Must be greater than zero"
+            />
+            @if (shouldShowError('quantity')) {
+              <div class="invalid-feedback">{{ validationMessage('quantity') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-source">Source warehouse <span>*</span></label>
+            <select
+              id="transfer-source"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('sourceWarehouseId')"
+              formControlName="sourceWarehouseId"
+            >
+              <option [ngValue]="0">Select a source warehouse</option>
+              @for (warehouse of warehouses(); track warehouse.id) {
+                <option [ngValue]="warehouse.id">
+                  {{ warehouse.name }} ({{ warehouse.code }})
+                </option>
+              }
+            </select>
+            @if (shouldShowError('sourceWarehouseId')) {
+              <div class="invalid-feedback">{{ validationMessage('sourceWarehouseId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-destination">
+              Destination warehouse <span>*</span>
+            </label>
+            <select
+              id="transfer-destination"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('destinationWarehouseId')"
+              formControlName="destinationWarehouseId"
+            >
+              <option [ngValue]="0">Select a destination warehouse</option>
+              @for (warehouse of warehouses(); track warehouse.id) {
+                <option [ngValue]="warehouse.id">
+                  {{ warehouse.name }} ({{ warehouse.code }})
+                </option>
+              }
+            </select>
+            @if (shouldShowError('destinationWarehouseId')) {
+              <div class="invalid-feedback">
+                {{ validationMessage('destinationWarehouseId') }}
+              </div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-reference">Reference number</label>
+            <input
+              id="transfer-reference"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('referenceNumber')"
+              type="text"
+              formControlName="referenceNumber"
+              maxlength="60"
+              placeholder="Optional transfer or request reference"
+            />
+            @if (shouldShowError('referenceNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('referenceNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="transfer-status">Status <span>*</span></label>
+            <select
+              id="transfer-status"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('status')"
+              formControlName="status"
+            >
+              @for (status of statuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+            @if (shouldShowError('status')) {
+              <div class="invalid-feedback">{{ validationMessage('status') }}</div>
+            }
+          </div>
+
+          <div class="col-12">
+            <label class="form-label" for="transfer-notes">Notes</label>
+            <textarea
+              id="transfer-notes"
+              class="form-control notes-input"
+              [class.is-invalid]="shouldShowError('notes')"
+              formControlName="notes"
+              maxlength="500"
+              rows="3"
+              placeholder="Optional notes about this transfer"
+            ></textarea>
+            @if (shouldShowError('notes')) {
+              <div class="invalid-feedback">{{ validationMessage('notes') }}</div>
+            }
+          </div>
+        </div>
+
+        <p class="stock-note">
+          Only a completed transfer changes balances. Pending, in-transit, and cancelled transfers
+          do not move stock.
+        </p>
+        <div class="dialog-actions">
+          <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">
+            {{ transferToEdit() ? 'Save changes' : 'Record transfer' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (transferToView(); as transfer) {
+  <div class="dialog-backdrop">
+    <section
+      class="transfer-dialog view-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="view-transfer-title"
+      (keydown.escape)="closeView()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">TRANSFER DETAILS</p>
+          <h2 id="view-transfer-title">{{ transfer.transferNumber }}</h2>
+          <p>{{ transfer.transferDate | date: 'fullDate' }} · {{ transfer.status }}</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close details" (click)="closeView()">
+          ×
+        </button>
+      </div>
+      <dl class="transfer-details">
+        <div>
+          <dt>Item</dt>
+          <dd>
+            {{ transfer.itemName }} <span>({{ transfer.itemSku }})</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Quantity transferred</dt>
+          <dd>{{ transfer.quantity | number: '1.0-3' }} {{ transfer.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Source warehouse</dt>
+          <dd>{{ transfer.sourceWarehouseName }}</dd>
+        </div>
+        <div>
+          <dt>Destination warehouse</dt>
+          <dd>{{ transfer.destinationWarehouseName }}</dd>
+        </div>
+        <div>
+          <dt>Reference number</dt>
+          <dd>{{ transfer.referenceNumber || '—' }}</dd>
+        </div>
+        <div class="notes-detail">
+          <dt>Notes</dt>
+          <dd>{{ transfer.notes || 'No notes added.' }}</dd>
+        </div>
+      </dl>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="closeView()">Close</button>
+        <button class="btn btn-primary" type="button" (click)="closeView(); openEditForm(transfer)">
+          Edit transfer
+        </button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (transferToDelete(); as transfer) {
+  <div class="dialog-backdrop">
+    <section
+      class="transfer-dialog delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-transfer-title"
+      aria-describedby="delete-transfer-description"
+      (keydown.escape)="cancelDelete()"
+    >
+      <span class="delete-warning-icon" aria-hidden="true">!</span>
+      <h2 id="delete-transfer-title">Delete this transfer?</h2>
+      <p id="delete-transfer-description">
+        <strong>{{ transfer.transferNumber }}</strong> will be removed from transfer history. This
+        does not change warehouse stock balances.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+          Cancel
+        </button>
+        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
+          Delete transfer
+        </button>
+      </div>
+    </section>
+  </div>
+}

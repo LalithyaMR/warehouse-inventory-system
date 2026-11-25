@@ -1,0 +1,84 @@
+<div class="app-shell">
+  @if (mobileNavOpen()) {
+    <button
+      class="sidebar-scrim"
+      type="button"
+      aria-label="Close navigation"
+      (click)="closeMobileNav()"
+    ></button>
+  }
+
+  <aside class="sidebar" [class.sidebar-open]="mobileNavOpen()" aria-label="Main navigation">
+    <a class="brand" routerLink="/dashboard" (click)="closeMobileNav()">
+      <span class="brand-mark" aria-hidden="true">W</span>
+      <span class="brand-copy">
+        <strong>Stockroom</strong>
+        <small>INVENTORY SYSTEM</small>
+      </span>
+    </a>
+
+    <p class="nav-heading">WORKSPACE</p>
+    <nav class="nav-list" aria-label="Workspace">
+      @for (item of navItems; track item.path) {
+        <a
+          class="nav-link"
+          [routerLink]="item.path"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          (click)="closeMobileNav()"
+        >
+          <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar-help">
+      <span class="help-icon" aria-hidden="true">?</span>
+      <div>
+        <strong>Getting started</strong>
+        <p>Set up your stockroom one step at a time.</p>
+      </div>
+    </div>
+    <div class="sidebar-user">
+      <span class="user-avatar" aria-hidden="true">JD</span>
+      <span class="user-copy"><strong>Jordan Davis</strong><small>Inventory manager</small></span>
+      <span class="user-menu" aria-hidden="true">•••</span>
+    </div>
+  </aside>
+
+  <div class="main-panel">
+    <header class="topbar">
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-label="Open navigation"
+        [attr.aria-expanded]="mobileNavOpen()"
+        (click)="toggleMobileNav()"
+      >
+        <span></span><span></span><span></span>
+      </button>
+      <div class="breadcrumb-label"><span>Workspace</span><span class="breadcrumb-divider">/</span><strong>Inventory</strong></div>
+      <div class="topbar-actions">
+        <span class="system-status"><span class="status-dot"></span> All systems normal</span>
+        <span class="notification-indicator" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+            <path d="M10 21h4" />
+          </svg>
+          <i></i>
+        </span>
+        <span class="topbar-avatar" aria-label="Jordan Davis">JD</span>
+      </div>
+    </header>
+
+    <main class="page-content" id="main-content">
+      <router-outlet />
+    </main>
+
+    <footer class="app-footer">
+      <span>Stockroom <span aria-hidden="true">·</span> Inventory made simple</span>
+      <span>Need a hand? <a routerLink="/dashboard">Visit your dashboard</a></span>
+    </footer>
+  </div>
+</div>

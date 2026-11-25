@@ -1,0 +1,392 @@
+<section class="dashboard-page">
+  <header class="page-heading">
+    <div>
+      <p class="eyebrow">WAREHOUSE OVERVIEW</p>
+      <h1>Dashboard</h1>
+      <p class="page-description">
+        Inventory activity and stock health across your warehouses.
+        <span class="current-date">{{ currentDate | date: 'EEEE, MMM d, y' }}</span>
+      </p>
+    </div>
+    <div class="heading-actions">
+      <a class="btn btn-outline-secondary btn-sm action-button" routerLink="/stock-transfers">
+        New transfer
+      </a>
+      <a class="btn btn-dark btn-sm action-button" routerLink="/stock-receipts">
+        <span aria-hidden="true">+</span> Record receipt
+      </a>
+      <a class="btn btn-success btn-sm action-button" routerLink="/stock-issues"> Record issue </a>
+    </div>
+  </header>
+
+  <nav class="dashboard-shortcuts" aria-label="Warehouse application sections">
+    <a routerLink="/dashboard" aria-current="page">Dashboard</a>
+    <a routerLink="/items">Items</a>
+    <a routerLink="/warehouses">Warehouses</a>
+    <a routerLink="/stock-receipts">Stock Receipts</a>
+    <a routerLink="/stock-issues">Stock Issues</a>
+    <a routerLink="/stock-transfers">Stock Transfers</a>
+    <a routerLink="/stock-balances">Stock Balances</a>
+  </nav>
+
+  <div class="row g-3 stat-grid">
+    @for (stat of stats(); track stat.label) {
+      <div class="col-12 col-sm-6 col-xl">
+        <article class="stat-card card h-100" [class]="stat.tone">
+          <div class="stat-top">
+            <span class="stat-icon" aria-hidden="true">{{ stat.icon }}</span>
+            <span class="stat-context">Live summary</span>
+          </div>
+          <p class="stat-label">{{ stat.label }}</p>
+          <strong class="stat-value">{{ stat.value | number: '1.0-2' }}</strong>
+          <span class="stat-detail">{{ stat.detail }}</span>
+        </article>
+      </div>
+    }
+  </div>
+
+  <div class="row g-3 dashboard-panels">
+    <div class="col-12 col-xl-7">
+      <section class="panel-card card h-100">
+        <div class="panel-heading">
+          <div>
+            <h2>Stock movement</h2>
+            <p>Daily movement record counts for the last 7 days</p>
+          </div>
+          <span class="chart-period">7 days</span>
+        </div>
+
+        <div class="chart-summary">
+          <strong>{{ movementChart().totalRecords | number }}</strong>
+          <span>movement records</span>
+        </div>
+
+        <div class="chart-container">
+          <svg
+            class="movement-chart"
+            viewBox="0 0 700 220"
+            role="img"
+            [attr.aria-label]="movementChart().ariaLabel"
+          >
+            <line class="chart-grid" x1="30" y1="40" x2="670" y2="40" />
+            <line class="chart-grid" x1="30" y1="105" x2="670" y2="105" />
+            <line class="chart-grid chart-baseline" x1="30" y1="170" x2="670" y2="170" />
+            <polyline
+              class="chart-series receipts-series"
+              [attr.points]="movementChart().receiptPoints"
+            />
+            <polyline
+              class="chart-series issues-series"
+              [attr.points]="movementChart().issuePoints"
+            />
+            <polyline
+              class="chart-series transfers-series"
+              [attr.points]="movementChart().transferPoints"
+            />
+            @for (day of movementChart().days; track day.key) {
+              <circle
+                class="chart-point receipts-point"
+                [attr.cx]="day.x"
+                [attr.cy]="day.receiptY"
+                r="3"
+              />
+              <circle
+                class="chart-point issues-point"
+                [attr.cx]="day.x"
+                [attr.cy]="day.issueY"
+                r="3"
+              />
+              <circle
+                class="chart-point transfers-point"
+                [attr.cx]="day.x"
+                [attr.cy]="day.transferY"
+                r="3"
+              />
+              <text class="chart-day" [attr.x]="day.x" y="199">{{ day.label }}</text>
+            }
+          </svg>
+        </div>
+
+        <div class="chart-legend" aria-label="Chart series">
+          <span
+            ><i class="legend-dot receipts-dot"></i> Receipts
+            <strong>{{ movementChart().receiptTotal }}</strong></span
+          >
+          <span
+            ><i class="legend-dot issues-dot"></i> Issues
+            <strong>{{ movementChart().issueTotal }}</strong></span
+          >
+          <span
+            ><i class="legend-dot transfers-dot"></i> Transfers
+            <strong>{{ movementChart().transferTotal }}</strong></span
+          >
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12 col-xl-5">
+      <section class="panel-card card h-100 warehouse-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Warehouse stock summary</h2>
+            <p>Available units and stock alerts by location</p>
+          </div>
+          <a class="text-link" routerLink="/warehouses">Manage</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table warehouse-table align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Warehouse</th>
+                <th scope="col">Available</th>
+                <th scope="col">Low</th>
+                <th scope="col">Out</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (summary of warehouseSummaries(); track summary.warehouse.id) {
+                <tr>
+                  <td>
+                    <a class="warehouse-name" routerLink="/stock-balances">
+                      {{ summary.warehouse.name }}
+                    </a>
+                    <small>{{ summary.warehouse.code }}</small>
+                  </td>
+                  <td>{{ summary.availableStock | number }}</td>
+                  <td>
+                    @if (summary.lowStockCount) {
+                      <span class="badge text-bg-warning">{{ summary.lowStockCount }}</span>
+                    } @else {
+                      <span class="count-empty">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (summary.outOfStockCount) {
+                      <span class="badge text-bg-danger">{{ summary.outOfStockCount }}</span>
+                    } @else {
+                      <span class="count-empty">—</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td class="empty-cell" colspan="4">No warehouses available.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <a class="panel-footer-link" routerLink="/stock-balances">View all stock balances</a>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel-card card alerts-panel">
+    <div class="panel-heading">
+      <div>
+        <h2>Stock alerts</h2>
+        <p>Items at or below their minimum stock level</p>
+      </div>
+      <a class="text-link" routerLink="/stock-balances">View balances</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col">SKU</th>
+            <th scope="col">Warehouse</th>
+            <th scope="col">Available</th>
+            <th scope="col">Minimum</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (balance of stockAlerts(); track balance.itemId + ':' + balance.warehouseId) {
+            <tr>
+              <td class="item-name">{{ balance.itemName }}</td>
+              <td class="sku-value">{{ balance.sku }}</td>
+              <td>{{ balance.warehouseName }}</td>
+              <td>{{ balance.availableStock | number }} {{ balance.itemUnit }}</td>
+              <td>{{ balance.minStockLevel | number }} {{ balance.itemUnit }}</td>
+              <td>
+                <span class="badge rounded-pill" [class]="stockStatusClass(balance.status)">
+                  {{ balance.status }}
+                </span>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="6">No low-stock or out-of-stock items.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="row g-3 recent-panels">
+    <div class="col-12 col-xl-6">
+      <section class="panel-card card h-100 recent-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Recent stock receipts</h2>
+            <p>Latest recorded incoming stock</p>
+          </div>
+          <a class="text-link" routerLink="/stock-receipts">View all</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Receipt</th>
+                <th scope="col">Date</th>
+                <th scope="col">Item / Warehouse</th>
+                <th scope="col">Supplier</th>
+                <th scope="col">Quantity</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (receipt of recentReceipts(); track receipt.id) {
+                <tr>
+                  <td class="reference-value">{{ receipt.receiptNumber }}</td>
+                  <td>{{ receipt.receiptDate | date: 'MMM d, y' }}</td>
+                  <td>
+                    <span class="primary-value">{{ receipt.itemName }}</span>
+                    <small>{{ receipt.warehouseName }}</small>
+                  </td>
+                  <td>{{ receipt.supplierName }}</td>
+                  <td>{{ receipt.quantityReceived | number }} {{ receipt.itemUnit }}</td>
+                  <td>
+                    <span class="badge rounded-pill text-bg-success">{{ receipt.status }}</span>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td class="empty-cell" colspan="6">No stock receipts recorded.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <section class="panel-card card h-100 recent-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Recent stock issues</h2>
+            <p>Latest recorded outgoing stock</p>
+          </div>
+          <a class="text-link" routerLink="/stock-issues">View all</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Issue</th>
+                <th scope="col">Date</th>
+                <th scope="col">Item / Warehouse</th>
+                <th scope="col">Recipient</th>
+                <th scope="col">Quantity</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (issue of recentIssues(); track issue.id) {
+                <tr>
+                  <td class="reference-value">{{ issue.issueNumber }}</td>
+                  <td>{{ issue.issueDate | date: 'MMM d, y' }}</td>
+                  <td>
+                    <span class="primary-value">{{ issue.itemName }}</span>
+                    <small>{{ issue.warehouseName }}</small>
+                  </td>
+                  <td>{{ issue.recipient }}</td>
+                  <td>{{ issue.quantityIssued | number }} {{ issue.itemUnit }}</td>
+                  <td>
+                    @if (issue.status === 'Issued') {
+                      <span class="badge rounded-pill text-bg-success">{{ issue.status }}</span>
+                    } @else {
+                      <span class="badge rounded-pill text-bg-secondary">{{ issue.status }}</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td class="empty-cell" colspan="6">No stock issues recorded.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12">
+      <section class="panel-card card recent-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Recent stock transfers</h2>
+            <p>Latest transfers between warehouses</p>
+          </div>
+          <a class="text-link" routerLink="/stock-transfers">View all</a>
+        </div>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Transfer</th>
+                <th scope="col">Date</th>
+                <th scope="col">Item</th>
+                <th scope="col">Source warehouse</th>
+                <th scope="col">Destination warehouse</th>
+                <th scope="col">Quantity</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (transfer of recentTransfers(); track transfer.id) {
+                <tr>
+                  <td class="reference-value">{{ transfer.transferNumber }}</td>
+                  <td>{{ transfer.transferDate | date: 'MMM d, y' }}</td>
+                  <td class="primary-value">{{ transfer.itemName }}</td>
+                  <td>{{ transfer.sourceWarehouseName }}</td>
+                  <td>{{ transfer.destinationWarehouseName }}</td>
+                  <td>{{ transfer.quantity | number }} {{ transfer.itemUnit }}</td>
+                  <td>
+                    @switch (transfer.status) {
+                      @case ('Pending') {
+                        <span class="badge rounded-pill text-bg-warning">{{
+                          transfer.status
+                        }}</span>
+                      }
+                      @case ('In Transit') {
+                        <span class="badge rounded-pill text-bg-info">{{ transfer.status }}</span>
+                      }
+                      @case ('Completed') {
+                        <span class="badge rounded-pill text-bg-success">{{
+                          transfer.status
+                        }}</span>
+                      }
+                      @case ('Cancelled') {
+                        <span class="badge rounded-pill text-bg-secondary">{{
+                          transfer.status
+                        }}</span>
+                      }
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td class="empty-cell" colspan="7">No stock transfers recorded.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>

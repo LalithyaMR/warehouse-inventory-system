@@ -1,0 +1,569 @@
+<section class="issues-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">OUTBOUND INVENTORY</p>
+      <h1>Stock Issues</h1>
+      <p class="page-description">
+        Record items issued to teams and departments, and keep an audit-friendly history.
+      </p>
+    </div>
+    <button class="btn btn-primary add-issue-button" type="button" (click)="openAddForm()">
+      <span aria-hidden="true">+</span> New Stock Issue
+    </button>
+  </div>
+
+  @if (notice()) {
+    <div class="alert alert-success alert-dismissible d-flex align-items-center" role="status">
+      <span>{{ notice() }}</span>
+      <button
+        class="btn-close ms-auto"
+        type="button"
+        aria-label="Dismiss notification"
+        (click)="dismissNotice()"
+      ></button>
+    </div>
+  }
+
+  <section class="issues-card card">
+    <div class="issues-card-heading">
+      <div>
+        <h2>Issue history</h2>
+        <p>
+          {{ issues().length }} issues recorded · {{ totalQuantity() | number: '1.0-2' }} units
+          issued
+        </p>
+      </div>
+      <span class="record-count">{{ filteredIssues().length }} shown</span>
+    </div>
+
+    <div class="filter-bar">
+      <div class="search-control">
+        <label class="visually-hidden" for="issue-search">
+          Search issue number, item name, or recipient
+        </label>
+        <span class="search-icon" aria-hidden="true">⌕</span>
+        <input
+          id="issue-search"
+          class="form-control"
+          type="search"
+          placeholder="Search issue, item, or recipient"
+          [value]="searchTerm()"
+          (input)="setSearch($event)"
+        />
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="issue-warehouse-filter">Filter by warehouse</label>
+        <select
+          id="issue-warehouse-filter"
+          class="form-select"
+          [value]="selectedWarehouseId()"
+          (change)="setWarehouse($event)"
+        >
+          <option value="all">All warehouses</option>
+          @for (warehouse of warehouses(); track warehouse.id) {
+            <option [value]="warehouse.id">{{ warehouse.name }}</option>
+          }
+        </select>
+      </div>
+      <div class="filter-control">
+        <label class="visually-hidden" for="issue-status-filter">Filter by status</label>
+        <select
+          id="issue-status-filter"
+          class="form-select"
+          [value]="selectedStatus()"
+          (change)="setStatus($event)"
+        >
+          <option value="all">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </div>
+      <div class="date-filter">
+        <label class="visually-hidden" for="issue-date-from">From date</label>
+        <input
+          id="issue-date-from"
+          class="form-control"
+          type="date"
+          aria-label="From date"
+          [value]="dateFrom()"
+          (change)="setDateFrom($event)"
+        />
+        <span aria-hidden="true">to</span>
+        <label class="visually-hidden" for="issue-date-to">To date</label>
+        <input
+          id="issue-date-to"
+          class="form-control"
+          type="date"
+          aria-label="To date"
+          [value]="dateTo()"
+          (change)="setDateTo($event)"
+        />
+      </div>
+      <button
+        class="btn btn-link clear-filters"
+        type="button"
+        [disabled]="!hasActiveFilters()"
+        (click)="clearFilters()"
+      >
+        Clear filters
+      </button>
+    </div>
+    @if (dateRangeInvalid()) {
+      <p class="date-filter-error" role="alert">
+        The start date must be on or before the end date.
+      </p>
+    }
+
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('issueNumber')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('issueNumber')"
+              >
+                Issue Number <span aria-hidden="true">{{ sorting.indicator('issueNumber') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('issueDate')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('issueDate')">
+                Issue Date <span aria-hidden="true">{{ sorting.indicator('issueDate') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemName')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemName')">
+                Item Name <span aria-hidden="true">{{ sorting.indicator('itemName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('itemSku')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('itemSku')">
+                SKU <span aria-hidden="true">{{ sorting.indicator('itemSku') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('warehouseName')">
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('warehouseName')"
+              >
+                Warehouse <span aria-hidden="true">{{ sorting.indicator('warehouseName') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('recipient')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('recipient')">
+                Recipient / Department
+                <span aria-hidden="true">{{ sorting.indicator('recipient') }}</span>
+              </button>
+            </th>
+            <th
+              scope="col"
+              class="numeric-cell"
+              [attr.aria-sort]="sorting.ariaSort('quantityIssued')"
+            >
+              <button
+                class="table-sort-button"
+                type="button"
+                (click)="sorting.toggle('quantityIssued')"
+              >
+                Quantity Issued
+                <span aria-hidden="true">{{ sorting.indicator('quantityIssued') }}</span>
+              </button>
+            </th>
+            <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
+              <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
+                Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
+              </button>
+            </th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (issue of filteredIssues(); track issue.id) {
+            <tr>
+              <td>
+                <span class="issue-number">{{ issue.issueNumber }}</span>
+              </td>
+              <td>{{ issue.issueDate | date: 'mediumDate' }}</td>
+              <td class="item-name">{{ issue.itemName }}</td>
+              <td>
+                <span class="sku-code">{{ issue.itemSku }}</span>
+              </td>
+              <td>{{ issue.warehouseName }}</td>
+              <td>{{ issue.recipient }}</td>
+              <td class="numeric-cell">
+                {{ issue.quantityIssued | number: '1.0-3' }}
+                @if (issue.itemUnit) {
+                  <span class="quantity-unit">{{ issue.itemUnit }}</span>
+                }
+              </td>
+              <td>
+                <span
+                  class="badge rounded-pill"
+                  [class.text-bg-success]="issue.status === 'Issued'"
+                  [class.text-bg-secondary]="issue.status === 'Cancelled'"
+                >
+                  {{ issue.status }}
+                </span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button
+                    class="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    [attr.aria-label]="'View ' + issue.issueNumber"
+                    (click)="viewIssue(issue)"
+                  >
+                    View
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-success"
+                    type="button"
+                    [attr.aria-label]="'Edit ' + issue.issueNumber"
+                    (click)="openEditForm(issue)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    type="button"
+                    [attr.aria-label]="'Delete ' + issue.issueNumber"
+                    (click)="requestDelete(issue)"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-cell" colspan="9">
+                <div class="empty-state">
+                  <span class="empty-symbol" aria-hidden="true">OUT</span>
+                  @if (issues().length === 0) {
+                    <h3>No stock issues yet</h3>
+                    <p>Record an issue to start building an outbound movement history.</p>
+                    <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
+                      New Stock Issue
+                    </button>
+                  } @else {
+                    <h3>No matching issues</h3>
+                    <p>Try changing your search, warehouse, status, or date range.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="clearFilters()"
+                    >
+                      Clear filters
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+@if (formOpen()) {
+  <div class="dialog-backdrop">
+    <section
+      class="issue-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="issue-dialog-title"
+      (keydown.escape)="closeForm()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">
+            {{ issueToEdit() ? 'UPDATE OUTBOUND RECORD' : 'NEW OUTBOUND RECORD' }}
+          </p>
+          <h2 id="issue-dialog-title">
+            {{ issueToEdit() ? 'Edit stock issue' : 'New stock issue' }}
+          </h2>
+          <p>Enter the issue details. Required fields are marked with *.</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
+          ×
+        </button>
+      </div>
+
+      @if (saveError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="saveIssue()" novalidate>
+        <div class="row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-number">Issue number <span>*</span></label>
+            <input
+              id="issue-number"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('issueNumber')"
+              type="text"
+              formControlName="issueNumber"
+              readonly
+            />
+            @if (shouldShowError('issueNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('issueNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-date">Issue date <span>*</span></label>
+            <input
+              id="issue-date"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('issueDate')"
+              type="date"
+              formControlName="issueDate"
+            />
+            @if (shouldShowError('issueDate')) {
+              <div class="invalid-feedback">{{ validationMessage('issueDate') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-item">Item <span>*</span></label>
+            <select
+              id="issue-item"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('itemId')"
+              formControlName="itemId"
+            >
+              <option [ngValue]="0">Select an item</option>
+              @for (item of items(); track item.id) {
+                <option [ngValue]="item.id">{{ item.name }} ({{ item.sku }})</option>
+              }
+            </select>
+            @if (shouldShowError('itemId')) {
+              <div class="invalid-feedback">{{ validationMessage('itemId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-warehouse">Warehouse <span>*</span></label>
+            <select
+              id="issue-warehouse"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('warehouseId')"
+              formControlName="warehouseId"
+            >
+              <option [ngValue]="0">Select a warehouse</option>
+              @for (warehouse of warehouses(); track warehouse.id) {
+                <option [ngValue]="warehouse.id">
+                  {{ warehouse.name }} ({{ warehouse.code }})
+                </option>
+              }
+            </select>
+            @if (shouldShowError('warehouseId')) {
+              <div class="invalid-feedback">{{ validationMessage('warehouseId') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-quantity">Quantity issued <span>*</span></label>
+            <input
+              id="issue-quantity"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('quantityIssued')"
+              type="number"
+              min="0"
+              step="any"
+              formControlName="quantityIssued"
+              placeholder="Must be greater than zero"
+            />
+            @if (shouldShowError('quantityIssued')) {
+              <div class="invalid-feedback">{{ validationMessage('quantityIssued') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-recipient">
+              Recipient / Department <span>*</span>
+            </label>
+            <input
+              id="issue-recipient"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('recipient')"
+              type="text"
+              formControlName="recipient"
+              maxlength="100"
+              placeholder="e.g. Production Team"
+            />
+            @if (shouldShowError('recipient')) {
+              <div class="invalid-feedback">{{ validationMessage('recipient') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-reference">Reference number</label>
+            <input
+              id="issue-reference"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('referenceNumber')"
+              type="text"
+              formControlName="referenceNumber"
+              maxlength="60"
+              placeholder="Optional request or work order"
+            />
+            @if (shouldShowError('referenceNumber')) {
+              <div class="invalid-feedback">{{ validationMessage('referenceNumber') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-reason">Reason <span>*</span></label>
+            <input
+              id="issue-reason"
+              class="form-control"
+              [class.is-invalid]="shouldShowError('reason')"
+              type="text"
+              formControlName="reason"
+              maxlength="100"
+              placeholder="e.g. Production use"
+            />
+            @if (shouldShowError('reason')) {
+              <div class="invalid-feedback">{{ validationMessage('reason') }}</div>
+            }
+          </div>
+
+          <div class="col-12 col-md-6">
+            <label class="form-label" for="issue-status">Status <span>*</span></label>
+            <select
+              id="issue-status"
+              class="form-select"
+              [class.is-invalid]="shouldShowError('status')"
+              formControlName="status"
+            >
+              @for (status of statuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+            @if (shouldShowError('status')) {
+              <div class="invalid-feedback">{{ validationMessage('status') }}</div>
+            }
+          </div>
+
+          <div class="col-12">
+            <label class="form-label" for="issue-notes">Notes</label>
+            <textarea
+              id="issue-notes"
+              class="form-control notes-input"
+              [class.is-invalid]="shouldShowError('notes')"
+              formControlName="notes"
+              maxlength="500"
+              rows="3"
+              placeholder="Optional notes about this issue"
+            ></textarea>
+            @if (shouldShowError('notes')) {
+              <div class="invalid-feedback">{{ validationMessage('notes') }}</div>
+            }
+          </div>
+        </div>
+
+        <p class="stock-note">Recording an issue here does not change stock balances.</p>
+        <div class="dialog-actions">
+          <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
+            Cancel
+          </button>
+          <button class="btn btn-primary" type="submit">
+            {{ issueToEdit() ? 'Save changes' : 'Record issue' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (issueToView(); as issue) {
+  <div class="dialog-backdrop">
+    <section
+      class="issue-dialog view-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="view-issue-title"
+      (keydown.escape)="closeView()"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ISSUE DETAILS</p>
+          <h2 id="view-issue-title">{{ issue.issueNumber }}</h2>
+          <p>{{ issue.issueDate | date: 'fullDate' }} · {{ issue.status }}</p>
+        </div>
+        <button class="dialog-close" type="button" aria-label="Close details" (click)="closeView()">
+          ×
+        </button>
+      </div>
+      <dl class="issue-details">
+        <div>
+          <dt>Item</dt>
+          <dd>
+            {{ issue.itemName }} <span>({{ issue.itemSku }})</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Warehouse</dt>
+          <dd>{{ issue.warehouseName }}</dd>
+        </div>
+        <div>
+          <dt>Recipient / Department</dt>
+          <dd>{{ issue.recipient }}</dd>
+        </div>
+        <div>
+          <dt>Quantity issued</dt>
+          <dd>{{ issue.quantityIssued | number: '1.0-3' }} {{ issue.itemUnit }}</dd>
+        </div>
+        <div>
+          <dt>Reference number</dt>
+          <dd>{{ issue.referenceNumber || '—' }}</dd>
+        </div>
+        <div>
+          <dt>Reason</dt>
+          <dd>{{ issue.reason }}</dd>
+        </div>
+        <div class="notes-detail">
+          <dt>Notes</dt>
+          <dd>{{ issue.notes || 'No notes added.' }}</dd>
+        </div>
+      </dl>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="closeView()">Close</button>
+        <button class="btn btn-primary" type="button" (click)="closeView(); openEditForm(issue)">
+          Edit issue
+        </button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (issueToDelete(); as issue) {
+  <div class="dialog-backdrop">
+    <section
+      class="issue-dialog delete-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="delete-issue-title"
+      aria-describedby="delete-issue-description"
+      (keydown.escape)="cancelDelete()"
+    >
+      <span class="delete-warning-icon" aria-hidden="true">!</span>
+      <h2 id="delete-issue-title">Delete this issue?</h2>
+      <p id="delete-issue-description">
+        <strong>{{ issue.issueNumber }}</strong> will be removed from issue history. This does not
+        change stock balances.
+      </p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+          Cancel
+        </button>
+        <button class="btn btn-danger" type="button" (click)="confirmDelete()">Delete issue</button>
+      </div>
+    </section>
+  </div>
+}

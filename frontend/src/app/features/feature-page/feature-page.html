@@ -1,0 +1,66 @@
+<section class="feature-page">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ featurePage().eyebrow }}</p>
+      <h1>{{ featurePage().title }}</h1>
+      <p class="page-description">{{ featurePage().description }}</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm dashboard-link" routerLink="/dashboard">
+      <span aria-hidden="true">←</span> Dashboard
+    </a>
+  </div>
+
+  <section class="feature-intro card">
+    <span class="feature-symbol" aria-hidden="true">{{ featurePage().icon }}</span>
+    <div>
+      <span class="intro-label">YOUR WORKSPACE IS READY</span>
+      <h2>{{ featurePage().introTitle }}</h2>
+      <p>{{ featurePage().introText }}</p>
+    </div>
+  </section>
+
+  <section class="setup-section" aria-labelledby="setup-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="setup-heading">A few steps to get started</h2>
+        <p>Keep your inventory organized from day one.</p>
+      </div>
+    </div>
+    <div class="row g-3">
+      @for (step of featurePage().nextSteps; track $index) {
+        <div class="col-12 col-md-4">
+          <article class="setup-card card h-100">
+            <span class="step-number">0{{ $index + 1 }}</span>
+            <p>{{ step }}</p>
+          </article>
+        </div>
+      }
+    </div>
+  </section>
+
+  <section class="records-card card">
+    <div class="records-heading">
+      <div>
+        <h2>{{ featurePage().tableTitle }}</h2>
+        <p>Your {{ featurePage().recordLabel }} will appear here.</p>
+      </div>
+      <span class="badge rounded-pill text-bg-light">0 records</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead>
+          <tr>
+            @for (column of featurePage().columns; track column) {
+              <th scope="col">{{ column }}</th>
+            }
+          </tr>
+        </thead>
+      </table>
+    </div>
+    <div class="empty-state">
+      <span class="empty-symbol" aria-hidden="true">{{ featurePage().icon }}</span>
+      <h3>No {{ featurePage().recordLabel }} yet</h3>
+      <p>Once you add your first record, you’ll find it here.</p>
+    </div>
+  </section>
+</section>
