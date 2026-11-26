@@ -24,6 +24,36 @@
     </div>
   }
 
+  @if (loading()) {
+    <div class="alert alert-info py-2" role="status">Loading receipts from the server...</div>
+  }
+
+  @if (loadError()) {
+    <div class="alert alert-danger d-flex align-items-center gap-3" role="alert">
+      <span>{{ loadError() }}</span>
+      <button
+        class="btn btn-sm btn-outline-danger ms-auto"
+        type="button"
+        (click)="retryLoadReceipts()"
+      >
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (dropdownError()) {
+    <div class="alert alert-warning d-flex align-items-center gap-3" role="alert">
+      <span>{{ dropdownError() }}</span>
+      <button
+        class="btn btn-sm btn-outline-warning ms-auto"
+        type="button"
+        (click)="retryLoadOptions()"
+      >
+        Retry item and warehouse lists
+      </button>
+    </div>
+  }
+
   <section class="receipts-card card">
     <div class="receipts-card-heading">
       <div>
@@ -39,14 +69,14 @@
     <div class="filter-bar">
       <div class="search-control">
         <label class="visually-hidden" for="receipt-search">
-          Search receipt number, item name, or supplier
+          Search receipt number, item name, or warehouse
         </label>
         <span class="search-icon" aria-hidden="true">⌕</span>
         <input
           id="receipt-search"
           class="form-control"
           type="search"
-          placeholder="Search receipt, item, or supplier"
+          placeholder="Search receipt, item, or warehouse"
           [value]="searchTerm()"
           (input)="setSearch($event)"
         />
@@ -143,15 +173,6 @@
                 Warehouse <span aria-hidden="true">{{ sorting.indicator('warehouseName') }}</span>
               </button>
             </th>
-            <th scope="col" [attr.aria-sort]="sorting.ariaSort('supplierName')">
-              <button
-                class="table-sort-button"
-                type="button"
-                (click)="sorting.toggle('supplierName')"
-              >
-                Supplier <span aria-hidden="true">{{ sorting.indicator('supplierName') }}</span>
-              </button>
-            </th>
             <th
               scope="col"
               class="numeric-cell"
@@ -186,9 +207,8 @@
                 <span class="sku-code">{{ receipt.itemSku }}</span>
               </td>
               <td>{{ receipt.warehouseName }}</td>
-              <td>{{ receipt.supplierName }}</td>
               <td class="numeric-cell">
-                {{ receipt.quantityReceived | number: '1.0-3' }}
+                {{ receipt.quantityReceived | number: '1.0-0' }}
                 @if (receipt.itemUnit) {
                   <span class="quantity-unit">{{ receipt.itemUnit }}</span>
                 }
@@ -227,10 +247,23 @@
             </tr>
           } @empty {
             <tr>
-              <td class="empty-cell" colspan="9">
+              <td class="empty-cell" colspan="8">
                 <div class="empty-state">
                   <span class="empty-symbol" aria-hidden="true">IN</span>
-                  @if (receipts().length === 0) {
+                  @if (loading()) {
+                    <h3>Loading receipts</h3>
+                    <p>Receipt history is being fetched from the server.</p>
+                  } @else if (loadError()) {
+                    <h3>Receipt history unavailable</h3>
+                    <p>Retry the request to load receipts.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="retryLoadReceipts()"
+                    >
+                      Retry
+                    </button>
+                  } @else if (receipts().length === 0) {
                     <h3>No stock receipts yet</h3>
                     <p>Record your first delivery to start building receipt history.</p>
                     <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
@@ -285,6 +318,15 @@
         <div class="alert alert-danger py-2" role="alert">{{ saveError() }}</div>
       }
 
+      @if (dropdownError()) {
+        <div class="alert alert-warning py-2" role="alert">
+          Item and warehouse options could not be loaded.
+          <button class="btn btn-sm btn-link" type="button" (click)="retryLoadOptions()">
+            Retry
+          </button>
+        </div>
+      }
+
       <form [formGroup]="form" (ngSubmit)="saveReceipt()" novalidate>
         <div class="row g-3">
           <div class="col-12 col-md-6">
@@ -327,7 +369,7 @@
               formControlName="itemId"
             >
               <option [ngValue]="0">Select an item</option>
-              @for (item of items(); track item.id) {
+              @for (item of activeItems(); track item.id) {
                 <option [ngValue]="item.id">{{ item.name }} ({{ item.sku }})</option>
               }
             </select>
@@ -345,7 +387,7 @@
               formControlName="warehouseId"
             >
               <option [ngValue]="0">Select a warehouse</option>
-              @for (warehouse of warehouses(); track warehouse.id) {
+              @for (warehouse of activeWarehouses(); track warehouse.id) {
                 <option [ngValue]="warehouse.id">
                   {{ warehouse.name }} ({{ warehouse.code }})
                 </option>
@@ -353,23 +395,6 @@
             </select>
             @if (shouldShowError('warehouseId')) {
               <div class="invalid-feedback">{{ validationMessage('warehouseId') }}</div>
-            }
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="receipt-supplier">Supplier name <span>*</span></label>
-            <input
-              id="receipt-supplier"
-              class="form-control"
-              [class.is-invalid]="shouldShowError('supplierName')"
-              type="text"
-              formControlName="supplierName"
-              maxlength="100"
-              autocomplete="organization"
-              placeholder="e.g. Summit Packaging"
-            />
-            @if (shouldShowError('supplierName')) {
-              <div class="invalid-feedback">{{ validationMessage('supplierName') }}</div>
             }
           </div>
 
@@ -382,8 +407,9 @@
               class="form-control"
               [class.is-invalid]="shouldShowError('quantityReceived')"
               type="number"
-              min="0"
-              step="any"
+              min="1"
+              max="2147483647"
+              step="1"
               formControlName="quantityReceived"
               placeholder="Must be greater than zero"
             />
@@ -392,47 +418,21 @@
             }
           </div>
 
-          <div class="col-12">
-            <label class="form-label" for="receipt-reference">Reference number</label>
-            <input
-              id="receipt-reference"
-              class="form-control"
-              [class.is-invalid]="shouldShowError('referenceNumber')"
-              type="text"
-              formControlName="referenceNumber"
-              maxlength="60"
-              autocomplete="off"
-              placeholder="Optional purchase order or supplier reference"
-            />
-            @if (shouldShowError('referenceNumber')) {
-              <div class="invalid-feedback">{{ validationMessage('referenceNumber') }}</div>
-            }
-          </div>
-
-          <div class="col-12">
-            <label class="form-label" for="receipt-notes">Notes</label>
-            <textarea
-              id="receipt-notes"
-              class="form-control notes-input"
-              [class.is-invalid]="shouldShowError('notes')"
-              formControlName="notes"
-              maxlength="500"
-              rows="3"
-              placeholder="Optional notes about this delivery"
-            ></textarea>
-            @if (shouldShowError('notes')) {
-              <div class="invalid-feedback">{{ validationMessage('notes') }}</div>
-            }
-          </div>
         </div>
 
-        <p class="balance-note">Recording a receipt here does not change stock balances.</p>
+        <p class="balance-note">
+          The backend updates inventory balances when this receipt is saved.
+        </p>
         <div class="dialog-actions">
           <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
             Cancel
           </button>
-          <button class="btn btn-primary" type="submit">
-            {{ receiptToEdit() ? 'Save changes' : 'Record receipt' }}
+          <button
+            class="btn btn-primary"
+            type="submit"
+            [disabled]="saving() || itemsLoading() || warehousesLoading()"
+          >
+            {{ saving() ? 'Saving...' : receiptToEdit() ? 'Save changes' : 'Record receipt' }}
           </button>
         </div>
       </form>
@@ -471,20 +471,8 @@
           <dd>{{ receipt.warehouseName }}</dd>
         </div>
         <div>
-          <dt>Supplier</dt>
-          <dd>{{ receipt.supplierName }}</dd>
-        </div>
-        <div>
           <dt>Quantity received</dt>
-          <dd>{{ receipt.quantityReceived | number: '1.0-3' }} {{ receipt.itemUnit }}</dd>
-        </div>
-        <div>
-          <dt>Reference number</dt>
-          <dd>{{ receipt.referenceNumber || '—' }}</dd>
-        </div>
-        <div class="notes-detail">
-          <dt>Notes</dt>
-          <dd>{{ receipt.notes || 'No notes added.' }}</dd>
+          <dd>{{ receipt.quantityReceived | number: '1.0-0' }} {{ receipt.itemUnit }}</dd>
         </div>
       </dl>
       <div class="dialog-actions">
@@ -510,15 +498,23 @@
       <span class="delete-warning-icon" aria-hidden="true">!</span>
       <h2 id="delete-receipt-title">Delete this receipt?</h2>
       <p id="delete-receipt-description">
-        <strong>{{ receipt.receiptNumber }}</strong> will be removed from receipt history. This does
-        not change stock balances.
+        <strong>{{ receipt.receiptNumber }}</strong> will be removed by the backend, which will
+        recalculate stock. The request can be rejected if it would make inventory negative.
       </p>
+      @if (deleteError()) {
+        <div class="alert alert-danger py-2 mt-3" role="alert">{{ deleteError() }}</div>
+      }
       <div class="dialog-actions">
         <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
           Cancel
         </button>
-        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
-          Delete receipt
+        <button
+          class="btn btn-danger"
+          type="button"
+          [disabled]="deleting()"
+          (click)="confirmDelete()"
+        >
+          {{ deleting() ? 'Deleting...' : 'Delete receipt' }}
         </button>
       </div>
     </section>

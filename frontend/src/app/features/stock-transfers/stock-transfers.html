@@ -4,7 +4,7 @@
       <p class="eyebrow">BETWEEN LOCATIONS</p>
       <h1>Stock Transfers</h1>
       <p class="page-description">
-        Track inventory moving between warehouses from dispatch through arrival.
+        Track inventory transfers between warehouses through completion or cancellation.
       </p>
     </div>
     <button class="btn btn-primary add-transfer-button" type="button" (click)="openAddForm()">
@@ -21,6 +21,15 @@
         aria-label="Dismiss notification"
         (click)="dismissNotice()"
       ></button>
+    </div>
+  }
+
+  @if (transfersLoadError() || itemsLoadError() || warehousesLoadError()) {
+    <div class="alert alert-danger d-flex align-items-center" role="alert">
+      <span>Some transfer data could not be loaded from the server.</span>
+      <button class="btn btn-sm btn-outline-danger ms-auto" type="button" (click)="retryData()">
+        Retry
+      </button>
     </div>
   }
 
@@ -224,7 +233,6 @@
                 <span
                   class="badge rounded-pill"
                   [class.text-bg-warning]="transfer.status === 'Pending'"
-                  [class.text-bg-info]="transfer.status === 'In Transit'"
                   [class.text-bg-success]="transfer.status === 'Completed'"
                   [class.text-bg-secondary]="transfer.status === 'Cancelled'"
                 >
@@ -244,6 +252,9 @@
                   <button
                     class="btn btn-sm btn-outline-success"
                     type="button"
+                    [disabled]="
+                      transfer.status === 'Cancelled' || loadingTransferId() === transfer.id
+                    "
                     [attr.aria-label]="'Edit ' + transfer.transferNumber"
                     (click)="openEditForm(transfer)"
                   >
@@ -265,7 +276,10 @@
               <td class="empty-cell" colspan="9">
                 <div class="empty-state">
                   <span class="empty-symbol" aria-hidden="true">MOVE</span>
-                  @if (transfers().length === 0) {
+                  @if (transfersLoading()) {
+                    <h3>Loading stock transfers</h3>
+                    <p>Retrieving transfer history from the server.</p>
+                  } @else if (transfers().length === 0) {
                     <h3>No stock transfers yet</h3>
                     <p>Create a transfer to start tracking movement between warehouses.</p>
                     <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
@@ -360,7 +374,7 @@
               formControlName="itemId"
             >
               <option [ngValue]="0">Select an item</option>
-              @for (item of items(); track item.id) {
+              @for (item of activeItems(); track item.id) {
                 <option [ngValue]="item.id">{{ item.name }} ({{ item.sku }})</option>
               }
             </select>
@@ -376,8 +390,8 @@
               class="form-control"
               [class.is-invalid]="shouldShowError('quantity')"
               type="number"
-              min="0"
-              step="any"
+              min="1"
+              step="1"
               formControlName="quantity"
               placeholder="Must be greater than zero"
             />
@@ -395,8 +409,11 @@
               formControlName="sourceWarehouseId"
             >
               <option [ngValue]="0">Select a source warehouse</option>
-              @for (warehouse of warehouses(); track warehouse.id) {
-                <option [ngValue]="warehouse.id">
+              @for (warehouse of activeWarehouses(); track warehouse.id) {
+                <option
+                  [ngValue]="warehouse.id"
+                  [disabled]="!isCancelling() && isSameWarehouseOption(warehouse.id, 'source')"
+                >
                   {{ warehouse.name }} ({{ warehouse.code }})
                 </option>
               }
@@ -417,8 +434,11 @@
               formControlName="destinationWarehouseId"
             >
               <option [ngValue]="0">Select a destination warehouse</option>
-              @for (warehouse of warehouses(); track warehouse.id) {
-                <option [ngValue]="warehouse.id">
+              @for (warehouse of activeWarehouses(); track warehouse.id) {
+                <option
+                  [ngValue]="warehouse.id"
+                  [disabled]="!isCancelling() && isSameWarehouseOption(warehouse.id, 'destination')"
+                >
                   {{ warehouse.name }} ({{ warehouse.code }})
                 </option>
               }
@@ -431,30 +451,15 @@
           </div>
 
           <div class="col-12 col-md-6">
-            <label class="form-label" for="transfer-reference">Reference number</label>
-            <input
-              id="transfer-reference"
-              class="form-control"
-              [class.is-invalid]="shouldShowError('referenceNumber')"
-              type="text"
-              formControlName="referenceNumber"
-              maxlength="60"
-              placeholder="Optional transfer or request reference"
-            />
-            @if (shouldShowError('referenceNumber')) {
-              <div class="invalid-feedback">{{ validationMessage('referenceNumber') }}</div>
-            }
-          </div>
-
-          <div class="col-12 col-md-6">
             <label class="form-label" for="transfer-status">Status <span>*</span></label>
             <select
               id="transfer-status"
               class="form-select"
               [class.is-invalid]="shouldShowError('status')"
               formControlName="status"
+              (change)="onStatusChange()"
             >
-              @for (status of statuses; track status) {
+              @for (status of statusesForForm(); track status) {
                 <option [value]="status">{{ status }}</option>
               }
             </select>
@@ -462,34 +467,22 @@
               <div class="invalid-feedback">{{ validationMessage('status') }}</div>
             }
           </div>
-
-          <div class="col-12">
-            <label class="form-label" for="transfer-notes">Notes</label>
-            <textarea
-              id="transfer-notes"
-              class="form-control notes-input"
-              [class.is-invalid]="shouldShowError('notes')"
-              formControlName="notes"
-              maxlength="500"
-              rows="3"
-              placeholder="Optional notes about this transfer"
-            ></textarea>
-            @if (shouldShowError('notes')) {
-              <div class="invalid-feedback">{{ validationMessage('notes') }}</div>
-            }
-          </div>
         </div>
 
         <p class="stock-note">
-          Only a completed transfer changes balances. Pending, in-transit, and cancelled transfers
-          do not move stock.
+          Pending transfers do not change stock. Completed transfers move stock, and cancelling a
+          completed transfer reverses that movement. The server validates stock and status rules.
         </p>
         <div class="dialog-actions">
           <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
             Cancel
           </button>
-          <button class="btn btn-primary" type="submit">
-            {{ transferToEdit() ? 'Save changes' : 'Record transfer' }}
+          <button
+            class="btn btn-primary"
+            type="submit"
+            [disabled]="saving() || itemsLoading() || warehousesLoading()"
+          >
+            {{ saving() ? 'Saving…' : transferToEdit() ? 'Save changes' : 'Record transfer' }}
           </button>
         </div>
       </form>
@@ -535,18 +528,15 @@
           <dt>Destination warehouse</dt>
           <dd>{{ transfer.destinationWarehouseName }}</dd>
         </div>
-        <div>
-          <dt>Reference number</dt>
-          <dd>{{ transfer.referenceNumber || '—' }}</dd>
-        </div>
-        <div class="notes-detail">
-          <dt>Notes</dt>
-          <dd>{{ transfer.notes || 'No notes added.' }}</dd>
-        </div>
       </dl>
       <div class="dialog-actions">
         <button class="btn btn-outline-secondary" type="button" (click)="closeView()">Close</button>
-        <button class="btn btn-primary" type="button" (click)="closeView(); openEditForm(transfer)">
+        <button
+          class="btn btn-primary"
+          type="button"
+          [disabled]="transfer.status === 'Cancelled'"
+          (click)="closeView(); openEditForm(transfer)"
+        >
           Edit transfer
         </button>
       </div>
@@ -567,15 +557,32 @@
       <span class="delete-warning-icon" aria-hidden="true">!</span>
       <h2 id="delete-transfer-title">Delete this transfer?</h2>
       <p id="delete-transfer-description">
-        <strong>{{ transfer.transferNumber }}</strong> will be removed from transfer history. This
-        does not change warehouse stock balances.
+        <strong>{{ transfer.transferNumber }}</strong> will be removed from transfer history.
+        @if (transfer.status === 'Completed') {
+          Its stock movement will be reversed if this does not create negative inventory.
+        } @else {
+          It has not changed stock balances.
+        }
       </p>
+      @if (deleteError()) {
+        <div class="alert alert-danger py-2" role="alert">{{ deleteError() }}</div>
+      }
       <div class="dialog-actions">
-        <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
+        <button
+          class="btn btn-outline-secondary"
+          type="button"
+          (click)="cancelDelete()"
+          [disabled]="deleting()"
+        >
           Cancel
         </button>
-        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
-          Delete transfer
+        <button
+          class="btn btn-danger"
+          type="button"
+          (click)="confirmDelete()"
+          [disabled]="deleting()"
+        >
+          {{ deleting() ? 'Deleting…' : 'Delete transfer' }}
         </button>
       </div>
     </section>

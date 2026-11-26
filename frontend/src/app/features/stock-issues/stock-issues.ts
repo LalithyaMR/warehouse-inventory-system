@@ -1,31 +1,25 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { DatePipe, DecimalPipe, isPlatformBrowser } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, OnInit, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
+
+import { sortRows, TableSortState } from '../../core/ui/table-sort';
+import { InventoryBalancesApiService } from '../stock-balances/inventory-balances-api.service';
 import { InventoryItem } from '../items/item.model';
 import { ItemsService } from '../items/items.service';
 import { Warehouse } from '../warehouses/warehouse.model';
 import { WarehousesService } from '../warehouses/warehouses.service';
-import { NewStockIssue, StockIssue, StockIssueStatus } from './stock-issue.model';
-import {
-  DuplicateIssueNumberError,
-  InsufficientStockError,
-  InvalidStockMovementQuantityError,
-  StockIssuesService,
-} from './stock-issues.service';
-import { sortRows, TableSortState } from '../../core/ui/table-sort';
+import { NewStockIssue, StockIssue } from './stock-issue.model';
+import { DuplicateIssueNumberError, StockIssuesService } from './stock-issues.service';
 
-type IssueFormField =
-  | 'issueNumber'
-  | 'issueDate'
-  | 'itemId'
-  | 'warehouseId'
-  | 'quantityIssued'
-  | 'recipient'
-  | 'referenceNumber'
-  | 'reason'
-  | 'notes'
-  | 'status';
+type IssueFormField = 'issueNumber' | 'issueDate' | 'itemId' | 'warehouseId' | 'quantityIssued';
 
 interface IssueRow extends StockIssue {
   itemName: string;
@@ -40,9 +34,12 @@ type IssueSortColumn =
   | 'itemName'
   | 'itemSku'
   | 'warehouseName'
-  | 'recipient'
   | 'quantityIssued'
   | 'status';
+
+function integerQuantity(control: AbstractControl<number>): ValidationErrors | null {
+  return Number.isInteger(control.value) ? null : { integer: true };
+}
 
 @Component({
   selector: 'app-stock-issues',
@@ -50,18 +47,49 @@ type IssueSortColumn =
   templateUrl: './stock-issues.html',
   styleUrl: './stock-issues.css',
 })
-export class StockIssues {
+export class StockIssues implements OnInit {
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly formBuilder = inject(FormBuilder).nonNullable;
   private readonly issuesService = inject(StockIssuesService);
   private readonly itemsService = inject(ItemsService);
   private readonly warehousesService = inject(WarehousesService);
+  private readonly inventoryBalancesService = inject(InventoryBalancesApiService);
 
   protected readonly items = toSignal(this.itemsService.items$, { initialValue: [] });
   protected readonly warehouses = toSignal(this.warehousesService.warehouses$, {
     initialValue: [],
   });
   protected readonly issues = toSignal(this.issuesService.issues$, { initialValue: [] });
-  protected readonly statuses: readonly StockIssueStatus[] = ['Issued', 'Cancelled'];
+  protected readonly balances = toSignal(this.inventoryBalancesService.balances$, {
+    initialValue: [],
+  });
+  protected readonly issuesLoading = toSignal(this.issuesService.loading$, { initialValue: false });
+  protected readonly issuesLoadError = toSignal(this.issuesService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly itemsLoading = toSignal(this.itemsService.loading$, { initialValue: false });
+  protected readonly itemsLoadError = toSignal(this.itemsService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly warehousesLoading = toSignal(this.warehousesService.loading$, {
+    initialValue: false,
+  });
+  protected readonly warehousesLoadError = toSignal(this.warehousesService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly balancesLoading = toSignal(this.inventoryBalancesService.loading$, {
+    initialValue: false,
+  });
+  protected readonly balancesLoadError = toSignal(this.inventoryBalancesService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly activeItems = computed(() =>
+    this.items().filter((item) => item.status === 'Active'),
+  );
+  protected readonly activeWarehouses = computed(() =>
+    this.warehouses().filter((warehouse) => warehouse.status === 'Active'),
+  );
+  protected readonly statuses = ['Issued'] as const;
   protected readonly searchTerm = signal('');
   protected readonly selectedWarehouseId = signal('all');
   protected readonly selectedStatus = signal('all');
@@ -72,7 +100,11 @@ export class StockIssues {
   protected readonly issueToView = signal<IssueRow | null>(null);
   protected readonly issueToDelete = signal<StockIssue | null>(null);
   protected readonly saveError = signal('');
+  protected readonly deleteError = signal('');
   protected readonly notice = signal('');
+  protected readonly saving = signal(false);
+  protected readonly deleting = signal(false);
+  protected readonly loadingIssueId = signal<number | null>(null);
   protected readonly sorting = new TableSortState<IssueSortColumn>('issueDate', 'desc', [
     'issueDate',
   ]);
@@ -88,14 +120,39 @@ export class StockIssues {
     warehouseId: [0, [Validators.required, Validators.min(1)]],
     quantityIssued: [
       0,
-      [Validators.required, Validators.min(Number.MIN_VALUE), Validators.max(999999999)],
+      [Validators.required, Validators.min(1), Validators.max(2147483647), integerQuantity],
     ],
-    recipient: ['', [Validators.required, Validators.maxLength(100), Validators.pattern(/\S/)]],
-    referenceNumber: ['', Validators.maxLength(60)],
-    reason: ['', [Validators.required, Validators.maxLength(100), Validators.pattern(/\S/)]],
-    notes: ['', Validators.maxLength(500)],
-    status: ['Issued' as StockIssueStatus, Validators.required],
   });
+
+  ngOnInit(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      this.inventoryBalancesService.reloadBalances();
+    }
+  }
+
+  protected readonly selectedItemId = toSignal(this.form.controls.itemId.valueChanges, {
+    initialValue: this.form.controls.itemId.value,
+  });
+  protected readonly selectedWarehouseIdForBalance = toSignal(
+    this.form.controls.warehouseId.valueChanges,
+    { initialValue: this.form.controls.warehouseId.value },
+  );
+  protected readonly availableQuantity = computed(() => {
+    const itemId = this.selectedItemId();
+    const warehouseId = this.selectedWarehouseIdForBalance();
+    if (itemId < 1 || warehouseId < 1) {
+      return null;
+    }
+
+    return (
+      this.balances().find(
+        (balance) => balance.itemId === itemId && balance.warehouseId === warehouseId,
+      )?.availableQuantity ?? 0
+    );
+  });
+  protected readonly selectedItemUnit = computed(
+    () => this.items().find((item) => item.id === this.selectedItemId())?.unit ?? '',
+  );
 
   protected readonly issueRows = computed(() => {
     const itemsById = new Map<number, InventoryItem>(this.items().map((item) => [item.id, item]));
@@ -132,8 +189,7 @@ export class StockIssues {
       const matchesSearch =
         query.length === 0 ||
         issue.issueNumber.toLocaleLowerCase().includes(query) ||
-        issue.itemName.toLocaleLowerCase().includes(query) ||
-        issue.recipient.toLocaleLowerCase().includes(query);
+        issue.itemName.toLocaleLowerCase().includes(query);
       const matchesWarehouse = warehouseId === 'all' || String(issue.warehouseId) === warehouseId;
       const matchesStatus = status === 'all' || issue.status === status;
       const matchesStartDate = !from || issue.issueDate >= from;
@@ -152,9 +208,7 @@ export class StockIssues {
   });
 
   protected readonly totalQuantity = computed(() =>
-    this.issues()
-      .filter((issue) => issue.status === 'Issued')
-      .reduce((total, issue) => total + issue.quantityIssued, 0),
+    this.issues().reduce((total, issue) => total + issue.quantityIssued, 0),
   );
   protected readonly dateRangeInvalid = computed(() =>
     Boolean(this.dateFrom() && this.dateTo() && this.dateFrom() > this.dateTo()),
@@ -202,34 +256,37 @@ export class StockIssues {
     this.issueToEdit.set(null);
     this.form.reset({
       issueNumber: this.issuesService.suggestIssueNumber(),
-      issueDate: new Date().toISOString().slice(0, 10),
+      issueDate: this.today(),
       itemId: 0,
       warehouseId: 0,
       quantityIssued: 0,
-      recipient: '',
-      referenceNumber: '',
-      reason: '',
-      notes: '',
-      status: 'Issued',
     });
     this.openForm();
   }
 
   protected openEditForm(issue: StockIssue): void {
-    this.issueToEdit.set(issue);
-    this.form.reset({
-      issueNumber: issue.issueNumber,
-      issueDate: issue.issueDate,
-      itemId: issue.itemId,
-      warehouseId: issue.warehouseId,
-      quantityIssued: issue.quantityIssued,
-      recipient: issue.recipient,
-      referenceNumber: issue.referenceNumber,
-      reason: issue.reason,
-      notes: issue.notes,
-      status: issue.status,
+    if (this.loadingIssueId() !== null) {
+      return;
+    }
+    this.loadingIssueId.set(issue.id);
+    this.issuesService.getIssue(issue.id).subscribe({
+      next: (loadedIssue) => {
+        this.issueToEdit.set(loadedIssue);
+        this.form.reset({
+          issueNumber: loadedIssue.issueNumber,
+          issueDate: loadedIssue.issueDate,
+          itemId: loadedIssue.itemId,
+          warehouseId: loadedIssue.warehouseId,
+          quantityIssued: loadedIssue.quantityIssued,
+        });
+        this.openForm();
+        this.loadingIssueId.set(null);
+      },
+      error: (error: unknown) => {
+        this.notice.set(this.errorMessage(error, 'load'));
+        this.loadingIssueId.set(null);
+      },
     });
-    this.openForm();
   }
 
   protected closeForm(): void {
@@ -258,39 +315,28 @@ export class StockIssues {
         return 'Select a warehouse.';
       }
       if (field === 'quantityIssued') {
-        return 'Enter a quantity greater than zero.';
+        return 'Enter a positive whole-number quantity.';
       }
       return 'This field is required.';
     }
     if (control.hasError('maxlength')) {
-      if (field === 'issueNumber') {
-        return 'Issue number must be 30 characters or fewer.';
-      }
-      if (field === 'recipient') {
-        return 'Recipient or department must be 100 characters or fewer.';
-      }
-      if (field === 'reason') {
-        return 'Reason must be 100 characters or fewer.';
-      }
-      return field === 'referenceNumber'
-        ? 'Reference number must be 60 characters or fewer.'
-        : 'Notes must be 500 characters or fewer.';
+      return 'Issue number must be 30 characters or fewer.';
     }
     if (control.hasError('pattern')) {
-      return field === 'issueNumber'
-        ? 'Issue number must use the generated ISS-#### format.'
-        : field === 'reason'
-          ? 'Reason cannot contain only spaces.'
-          : 'Recipient or department cannot contain only spaces.';
+      return 'Issue number must use the generated ISS-#### format.';
     }
     if (control.hasError('min')) {
-      if (field === 'quantityIssued') {
-        return 'Quantity issued must be greater than zero.';
-      }
-      return field === 'itemId' ? 'Select an item.' : 'Select a warehouse.';
+      return field === 'quantityIssued'
+        ? 'Quantity issued must be greater than zero.'
+        : field === 'itemId'
+          ? 'Select an item.'
+          : 'Select a warehouse.';
     }
     if (control.hasError('max')) {
-      return 'Quantity must be 999,999,999 or less.';
+      return 'Quantity must be 2,147,483,647 or less.';
+    }
+    if (control.hasError('integer')) {
+      return 'Quantity must be a whole number.';
     }
     if (control.hasError('unavailable')) {
       return field === 'itemId'
@@ -306,64 +352,50 @@ export class StockIssues {
     this.saveError.set('');
     this.form.markAllAsTouched();
 
-    if (this.form.invalid) {
+    if (this.form.invalid || this.saving()) {
       return;
     }
 
     const values = this.form.getRawValue();
-    const selectedItem = this.items().find((item) => item.id === values.itemId);
-    const selectedWarehouse = this.warehouses().find(
-      (warehouse) => warehouse.id === values.warehouseId,
-    );
-
-    if (!selectedItem) {
+    if (!this.activeItems().some((item) => item.id === values.itemId)) {
       this.form.controls.itemId.setErrors({ unavailable: true });
       return;
     }
-    if (!selectedWarehouse) {
+    if (!this.activeWarehouses().some((warehouse) => warehouse.id === values.warehouseId)) {
       this.form.controls.warehouseId.setErrors({ unavailable: true });
       return;
     }
 
     const issueData: NewStockIssue = {
+      issueNumber: values.issueNumber.trim(),
       issueDate: values.issueDate,
       itemId: values.itemId,
       warehouseId: values.warehouseId,
       quantityIssued: values.quantityIssued,
-      recipient: values.recipient.trim(),
-      referenceNumber: values.referenceNumber.trim(),
-      reason: values.reason.trim(),
-      notes: values.notes.trim(),
-      status: values.status,
     };
+    const existingIssue = this.issueToEdit();
+    this.saving.set(true);
 
-    try {
-      const existingIssue = this.issueToEdit();
-      if (existingIssue) {
-        const updatedIssue = this.issuesService.updateIssue({
-          ...issueData,
-          id: existingIssue.id,
-          issueNumber: existingIssue.issueNumber,
-        });
-        this.notice.set(`${updatedIssue.issueNumber} was updated.`);
-      } else {
-        const newIssue = this.issuesService.addIssue(issueData);
-        this.notice.set(`${newIssue.issueNumber} was recorded.`);
-      }
+    const request = existingIssue
+      ? this.issuesService.updateIssue({ ...issueData, id: existingIssue.id, status: 'Issued' })
+      : this.issuesService.addIssue(issueData);
 
-      this.closeForm();
-    } catch (error) {
-      if (
-        error instanceof InsufficientStockError ||
-        error instanceof InvalidStockMovementQuantityError ||
-        error instanceof DuplicateIssueNumberError
-      ) {
-        this.saveError.set(error.message);
-        return;
-      }
-
-      throw error;
-    }
+    request.subscribe({
+      next: (savedIssue) => {
+        this.saving.set(false);
+        this.closeForm();
+        this.notice.set(
+          existingIssue
+            ? `${savedIssue.issueNumber} was updated.`
+            : `${savedIssue.issueNumber} was recorded.`,
+        );
+        this.refreshAfterMovement();
+      },
+      error: (error: unknown) => {
+        this.saving.set(false);
+        this.saveError.set(this.errorMessage(error, 'save'));
+      },
+    });
   }
 
   protected viewIssue(issue: IssueRow): void {
@@ -375,26 +407,51 @@ export class StockIssues {
   }
 
   protected requestDelete(issue: StockIssue): void {
+    this.deleteError.set('');
     this.issueToDelete.set(issue);
   }
 
   protected cancelDelete(): void {
-    this.issueToDelete.set(null);
+    if (!this.deleting()) {
+      this.issueToDelete.set(null);
+      this.deleteError.set('');
+    }
   }
 
   protected confirmDelete(): void {
     const issue = this.issueToDelete();
-    if (!issue) {
+    if (!issue || this.deleting()) {
       return;
     }
 
-    this.issuesService.deleteIssue(issue.id);
-    this.notice.set(`${issue.issueNumber} was deleted.`);
-    this.cancelDelete();
+    this.deleting.set(true);
+    this.deleteError.set('');
+    this.issuesService.deleteIssue(issue.id).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.issueToDelete.set(null);
+        this.notice.set(`${issue.issueNumber} was deleted and its quantity restored to stock.`);
+        this.refreshAfterMovement();
+      },
+      error: (error: unknown) => {
+        this.deleting.set(false);
+        this.deleteError.set(this.errorMessage(error, 'delete'));
+      },
+    });
   }
 
   protected dismissNotice(): void {
     this.notice.set('');
+  }
+
+  protected refreshData(): void {
+    this.issuesService.reloadIssues();
+    this.itemsService.reloadItems();
+    this.warehousesService.reloadWarehouses();
+  }
+
+  protected refreshBalances(): void {
+    this.inventoryBalancesService.reloadBalances();
   }
 
   private openForm(): void {
@@ -402,5 +459,67 @@ export class StockIssues {
     this.saveError.set('');
     this.notice.set('');
     this.formOpen.set(true);
+  }
+
+  private refreshAfterMovement(): void {
+    this.issuesService.reloadIssues();
+    this.inventoryBalancesService.reloadBalances();
+  }
+
+  private today(): string {
+    const date = new Date();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  }
+
+  private errorMessage(error: unknown, operation: 'load' | 'save' | 'delete'): string {
+    if (error instanceof DuplicateIssueNumberError) {
+      return error.message;
+    }
+    if (!(error instanceof HttpErrorResponse)) {
+      return error instanceof Error ? error.message : 'An unexpected error occurred.';
+    }
+
+    const backendMessage = this.backendMessage(error);
+    if (error.status === 0) {
+      return 'Could not reach the server. Check your connection and try again.';
+    }
+    if (error.status === 400) {
+      return backendMessage ?? 'The request was invalid. Check the issue details and try again.';
+    }
+    if (error.status === 404) {
+      return operation === 'load'
+        ? 'This issue no longer exists. Refresh the list and try again.'
+        : 'The issue, item, or warehouse could not be found. Refresh the list and try again.';
+    }
+    if (error.status === 409) {
+      return (
+        backendMessage ?? 'The request conflicts with current inventory. Check available stock.'
+      );
+    }
+    if (error.status >= 500) {
+      return backendMessage
+        ? `The server could not ${operation} the issue: ${backendMessage}`
+        : 'The server could not complete the request. Try again later.';
+    }
+    return backendMessage ?? `Unable to ${operation} the stock issue (HTTP ${error.status}).`;
+  }
+
+  private backendMessage(error: HttpErrorResponse): string | null {
+    if (typeof error.error === 'string' && error.error.trim()) {
+      return error.error.trim();
+    }
+    if (typeof error.error !== 'object' || error.error === null) {
+      return null;
+    }
+
+    for (const key of ['message', 'detail', 'error']) {
+      const value: unknown = error.error[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return null;
   }
 }

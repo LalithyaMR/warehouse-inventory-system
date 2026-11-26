@@ -1,59 +1,94 @@
-# Frontend
+# Warehouse Inventory and Stock Movement System
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.3.0.
+## Project layout
 
-## Development server
+- `frontend/` — Angular 22 application.
+- `warehouse-inventory/` — Spring Boot 4.2 REST API, configured for Java 25.
+- MySQL database — `warehouse_db`.
 
-To start a local development server, run:
+The Angular development environment calls `http://localhost:8080/api`. The Spring Boot
+controllers allow the development origin `http://localhost:4200`; use that exact hostname
+and port in the browser rather than `127.0.0.1`.
 
-```bash
-ng serve
+## Prerequisites
+
+- Windows PowerShell.
+- JDK 25 on `PATH` (`java --version` should report 25).
+- MySQL Server running on `localhost:3306`.
+- Node.js and npm supported by Angular 22.
+
+## Create the database
+
+Start the MySQL service, then create the database using MySQL Workbench or the MySQL CLI:
+
+```sql
+CREATE DATABASE IF NOT EXISTS warehouse_db;
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+The backend uses Spring datasource settings. In the PowerShell window used to start the
+backend, provide local connection values without adding passwords to source files:
 
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
+```powershell
+$env:SPRING_DATASOURCE_URL = "jdbc:mysql://localhost:3306/warehouse_db"
+$env:SPRING_DATASOURCE_USERNAME = "root"
+$env:SPRING_DATASOURCE_PASSWORD = "<your local MySQL password>"
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Replace the username/password for your local MySQL account. Keep real credentials out of
+Git and do not commit `.env` files.
 
-```bash
-ng generate --help
+## Run the Spring Boot API
+
+From the repository root, open a PowerShell window and run:
+
+```powershell
+Set-Location .\warehouse-inventory
+java --version
+.\mvnw.cmd spring-boot:run
 ```
 
-## Building
+The API listens on `http://localhost:8080`. Keep this window open.
 
-To build the project run:
+## Run the Angular application
 
-```bash
-ng build
+Open a second PowerShell window at the repository root:
+
+```powershell
+Set-Location .\frontend
+npm ci
+npm.cmd start
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Open `http://localhost:4200`. The frontend reads and writes real backend data; inventory
+balances and dashboard totals are calculated by the backend.
 
-## Running unit tests
+## Verify persisted data
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+Use the application forms to create or update items, warehouses, receipts, issues, and
+transfers. Refresh the browser and confirm the records remain. Master-record deactivation
+is soft deletion; receipt, issue, and transfer operations follow backend stock rules.
 
-```bash
-ng test
+In MySQL Workbench, select `warehouse_db` and inspect the persisted entity tables:
+
+```sql
+USE warehouse_db;
+SELECT * FROM items ORDER BY id DESC;
+SELECT * FROM warehouses ORDER BY id DESC;
+SELECT * FROM stock_receipts ORDER BY id DESC;
+SELECT * FROM stock_issues ORDER BY id DESC;
+SELECT * FROM stock_transfers ORDER BY id DESC;
 ```
 
-## Running end-to-end tests
+Available balances are calculated rather than stored as a separate movement total. Verify
+them through `GET http://localhost:8080/api/inventory/balances` (optionally with
+`?warehouseId=<id>`). The dashboard summary is available at
+`GET http://localhost:8080/api/dashboard/summary`.
 
-For end-to-end (e2e) testing, run:
+## Build and tests
 
-```bash
-ng e2e
+From `frontend/`:
+
+```powershell
+npm.cmd test -- --watch=false
+npm.cmd run build
 ```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.

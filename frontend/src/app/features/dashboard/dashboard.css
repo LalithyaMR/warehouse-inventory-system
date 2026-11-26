@@ -336,6 +336,17 @@ h1 {
   background: #6a83bd;
 }
 
+.dashboard-api-summary {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #eef0f3;
+}
+
+.dashboard-api-summary > div {
+  display: grid;
+  gap: 5px;
+}
+
 .text-link,
 .panel-footer-link {
   color: #438669;

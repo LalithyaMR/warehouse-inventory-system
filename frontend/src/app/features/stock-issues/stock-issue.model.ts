@@ -1,4 +1,4 @@
-export type StockIssueStatus = 'Issued' | 'Cancelled';
+export type StockIssueStatus = 'Issued';
 
 export interface StockIssue {
   id: number;
@@ -7,11 +7,7 @@ export interface StockIssue {
   itemId: number;
   warehouseId: number;
   quantityIssued: number;
-  recipient: string;
-  referenceNumber: string;
-  reason: string;
-  notes: string;
   status: StockIssueStatus;
 }
 
-export type NewStockIssue = Omit<StockIssue, 'id' | 'issueNumber'>;
+export type NewStockIssue = Omit<StockIssue, 'id' | 'status'>;
