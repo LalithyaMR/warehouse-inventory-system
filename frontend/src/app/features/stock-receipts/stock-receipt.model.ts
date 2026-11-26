@@ -6,11 +6,8 @@ export interface StockReceipt {
   receiptDate: string;
   itemId: number;
   warehouseId: number;
-  supplierName: string;
   quantityReceived: number;
-  referenceNumber: string;
-  notes: string;
   status: ReceiptStatus;
 }
 
-export type NewStockReceipt = Omit<StockReceipt, 'id'>;
+export type NewStockReceipt = Omit<StockReceipt, 'id' | 'status'>;

@@ -1,13 +1,14 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+
+import { sortRows, TableSortState } from '../../core/ui/table-sort';
 import { Warehouse, WarehouseStatus } from './warehouse.model';
 import { DuplicateWarehouseCodeError, WarehousesService } from './warehouses.service';
-import { sortRows, TableSortState } from '../../core/ui/table-sort';
 
-type WarehouseFormField = 'name' | 'code' | 'location' | 'managerName' | 'contactNumber' | 'status';
-type WarehouseSortColumn =
-  'name' | 'code' | 'location' | 'managerName' | 'contactNumber' | 'status';
+type WarehouseFormField = 'name' | 'code' | 'location';
+type WarehouseSortColumn = 'name' | 'code' | 'location' | 'status';
 
 @Component({
   selector: 'app-warehouses',
@@ -23,13 +24,29 @@ export class Warehouses {
   protected readonly warehouses = toSignal(this.warehousesService.warehouses$, {
     initialValue: [],
   });
+  protected readonly loading = toSignal(this.warehousesService.loading$, {
+    initialValue: false,
+  });
+  private readonly loadRequestError = toSignal(this.warehousesService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly loadError = computed(() => {
+    const error = this.loadRequestError();
+    return error ? this.getErrorMessage(error, 'Could not load warehouses.') : '';
+  });
+
   protected readonly searchTerm = signal('');
   protected readonly selectedStatus = signal('All statuses');
   protected readonly formOpen = signal(false);
   protected readonly warehouseToEdit = signal<Warehouse | null>(null);
   protected readonly warehouseToDelete = signal<Warehouse | null>(null);
   protected readonly saveError = signal('');
+  protected readonly editError = signal('');
+  protected readonly deleteError = signal('');
   protected readonly notice = signal('');
+  protected readonly saving = signal(false);
+  protected readonly deleting = signal(false);
+  protected readonly loadingWarehouseId = signal<number | null>(null);
   protected readonly sorting = new TableSortState<WarehouseSortColumn>('name');
 
   protected submitted = false;
@@ -44,17 +61,7 @@ export class Warehouses {
         Validators.pattern(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/),
       ],
     ],
-    location: ['', [Validators.required, Validators.maxLength(160), Validators.pattern(/\S/)]],
-    managerName: ['', [Validators.required, Validators.maxLength(100), Validators.pattern(/\S/)]],
-    contactNumber: [
-      '',
-      [
-        Validators.required,
-        Validators.maxLength(21),
-        Validators.pattern(/^\+?[0-9][0-9\s()-]{6,19}$/),
-      ],
-    ],
-    status: this.formBuilder.control<WarehouseStatus>('Active', Validators.required),
+    location: ['', [Validators.maxLength(160)]],
   });
 
   protected readonly filteredWarehouses = computed(() => {
@@ -103,33 +110,48 @@ export class Warehouses {
     this.selectedStatus.set('All statuses');
   }
 
+  protected retryLoadWarehouses(): void {
+    this.warehousesService.reloadWarehouses();
+  }
+
   protected openAddForm(): void {
     this.warehouseToEdit.set(null);
-    this.form.reset({
-      name: '',
-      code: '',
-      location: '',
-      managerName: '',
-      contactNumber: '',
-      status: 'Active',
-    });
+    this.form.reset({ name: '', code: '', location: '' });
     this.openForm();
   }
 
   protected openEditForm(warehouse: Warehouse): void {
-    this.warehouseToEdit.set(warehouse);
-    this.form.reset({
-      name: warehouse.name,
-      code: warehouse.code,
-      location: warehouse.location,
-      managerName: warehouse.managerName,
-      contactNumber: warehouse.contactNumber,
-      status: warehouse.status,
+    if (this.loadingWarehouseId() !== null) {
+      return;
+    }
+
+    this.editError.set('');
+    this.loadingWarehouseId.set(warehouse.id);
+    this.warehousesService.getWarehouse(warehouse.id).subscribe({
+      next: (loadedWarehouse) => {
+        this.loadingWarehouseId.set(null);
+        this.warehouseToEdit.set(loadedWarehouse);
+        this.form.reset({
+          name: loadedWarehouse.name,
+          code: loadedWarehouse.code,
+          location: loadedWarehouse.location,
+        });
+        this.openForm();
+      },
+      error: (error: unknown) => {
+        this.loadingWarehouseId.set(null);
+        this.editError.set(
+          this.getErrorMessage(error, 'Could not load the warehouse for editing.'),
+        );
+      },
     });
-    this.openForm();
   }
 
   protected closeForm(): void {
+    if (this.saving()) {
+      return;
+    }
+
     this.formOpen.set(false);
     this.warehouseToEdit.set(null);
     this.saveError.set('');
@@ -151,30 +173,26 @@ export class Warehouses {
       return 'This field is required.';
     }
     if (control.hasError('maxlength')) {
-      if (field === 'code') {
-        return 'Warehouse code must be 24 characters or fewer.';
-      }
-      if (field === 'contactNumber') {
-        return 'Contact number must be 21 characters or fewer.';
-      }
-      return field === 'location'
-        ? 'Location must be 160 characters or fewer.'
-        : 'This field must be 100 characters or fewer.';
+      return field === 'code'
+        ? 'Warehouse code must be 24 characters or fewer.'
+        : field === 'location'
+          ? 'Location must be 160 characters or fewer.'
+          : 'Warehouse name must be 100 characters or fewer.';
     }
     if (control.hasError('pattern')) {
-      if (field === 'code') {
-        return 'Use letters, numbers, hyphens, or underscores.';
-      }
-      if (field === 'contactNumber') {
-        return 'Enter a valid phone number, including its country code if needed.';
-      }
-      return 'This field cannot contain only spaces.';
+      return field === 'code'
+        ? 'Use letters, numbers, hyphens, or underscores.'
+        : 'This field cannot contain only spaces.';
     }
 
     return 'Check this value.';
   }
 
   protected saveWarehouse(): void {
+    if (this.saving()) {
+      return;
+    }
+
     this.submitted = true;
     this.saveError.set('');
     this.form.markAllAsTouched();
@@ -188,52 +206,65 @@ export class Warehouses {
       name: values.name.trim(),
       code: values.code.trim(),
       location: values.location.trim(),
-      managerName: values.managerName.trim(),
-      contactNumber: values.contactNumber.trim(),
-      status: values.status,
     };
-
-    try {
-      const existingWarehouse = this.warehouseToEdit();
-      if (existingWarehouse) {
-        this.warehousesService.updateWarehouse({
+    const existingWarehouse = this.warehouseToEdit();
+    const request = existingWarehouse
+      ? this.warehousesService.updateWarehouse({
           ...warehouseData,
           id: existingWarehouse.id,
-        });
-        this.notice.set(`${warehouseData.name} was updated.`);
-      } else {
-        this.warehousesService.addWarehouse(warehouseData);
-        this.notice.set(`${warehouseData.name} was added.`);
-      }
+          status: existingWarehouse.status,
+        })
+      : this.warehousesService.addWarehouse(warehouseData);
 
-      this.closeForm();
-    } catch (error) {
-      if (error instanceof DuplicateWarehouseCodeError) {
-        this.saveError.set(error.message);
-        return;
-      }
-
-      throw error;
-    }
+    this.saving.set(true);
+    request.subscribe({
+      next: (savedWarehouse) => {
+        this.saving.set(false);
+        this.notice.set(
+          `${savedWarehouse.name} was ${existingWarehouse ? 'updated' : 'added'} successfully.`,
+        );
+        this.closeForm();
+      },
+      error: (error: unknown) => {
+        this.saving.set(false);
+        this.saveError.set(this.getErrorMessage(error, 'Could not save the warehouse.'));
+      },
+    });
   }
 
   protected requestDelete(warehouse: Warehouse): void {
+    this.deleteError.set('');
     this.warehouseToDelete.set(warehouse);
   }
 
   protected cancelDelete(): void {
+    if (this.deleting()) {
+      return;
+    }
+
     this.warehouseToDelete.set(null);
+    this.deleteError.set('');
   }
 
   protected confirmDelete(): void {
     const warehouse = this.warehouseToDelete();
-    if (!warehouse) {
+    if (!warehouse || this.deleting()) {
       return;
     }
 
-    this.warehousesService.deleteWarehouse(warehouse.id);
-    this.notice.set(`${warehouse.name} was deleted.`);
-    this.cancelDelete();
+    this.deleteError.set('');
+    this.deleting.set(true);
+    this.warehousesService.deleteWarehouse(warehouse.id).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.notice.set(`${warehouse.name} was deactivated successfully.`);
+        this.cancelDelete();
+      },
+      error: (error: unknown) => {
+        this.deleting.set(false);
+        this.deleteError.set(this.getErrorMessage(error, 'Could not deactivate the warehouse.'));
+      },
+    });
   }
 
   protected dismissNotice(): void {
@@ -245,5 +276,52 @@ export class Warehouses {
     this.saveError.set('');
     this.notice.set('');
     this.formOpen.set(true);
+  }
+
+  private getErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof DuplicateWarehouseCodeError) {
+      return error.message;
+    }
+
+    if (!(error instanceof HttpErrorResponse)) {
+      return fallback;
+    }
+
+    const backendMessage = this.backendErrorMessage(error);
+    if (error.status === 0) {
+      return 'Cannot connect to Spring Boot. Check that the backend is running on port 8080.';
+    }
+    if (error.status === 400) {
+      return backendMessage ?? 'The backend rejected the warehouse details. Check the fields and try again.';
+    }
+    if (error.status === 404) {
+      return backendMessage ?? 'The requested warehouse was not found. Refresh the directory and try again.';
+    }
+    if (error.status === 409) {
+      return backendMessage ?? 'A warehouse with this code already exists.';
+    }
+    if (error.status >= 500) {
+      return `The server could not complete the request (HTTP ${error.status}). Try again later.`;
+    }
+    return `${fallback} (HTTP ${error.status}).`;
+  }
+
+  private backendErrorMessage(error: HttpErrorResponse): string | null {
+    if (typeof error.error === 'string' && error.error.trim()) {
+      return error.error.trim();
+    }
+
+    const body: unknown = error.error;
+    if (typeof body !== 'object' || body === null) {
+      return null;
+    }
+
+    const detail = 'detail' in body ? body.detail : undefined;
+    const message = 'message' in body ? body.message : undefined;
+    const backendError = 'error' in body ? body.error : undefined;
+    const text = [detail, message, backendError].find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    );
+    return text?.trim() ?? null;
   }
 }

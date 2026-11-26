@@ -1,4 +1,4 @@
-export type StockTransferStatus = 'Pending' | 'In Transit' | 'Completed' | 'Cancelled';
+export type StockTransferStatus = 'Pending' | 'Completed' | 'Cancelled';
 
 export interface StockTransfer {
   id: number;
@@ -8,9 +8,7 @@ export interface StockTransfer {
   sourceWarehouseId: number;
   destinationWarehouseId: number;
   quantity: number;
-  referenceNumber: string;
-  notes: string;
   status: StockTransferStatus;
 }
 
-export type NewStockTransfer = Omit<StockTransfer, 'id' | 'transferNumber'>;
+export type NewStockTransfer = Omit<StockTransfer, 'id'>;

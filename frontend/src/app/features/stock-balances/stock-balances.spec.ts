@@ -1,227 +1,247 @@
-import { TestBed } from '@angular/core/testing';
-import { firstValueFrom } from 'rxjs';
-import { NewStockReceipt } from '../stock-receipts/stock-receipt.model';
-import { StockReceiptsService } from '../stock-receipts/stock-receipts.service';
-import { StockIssuesService } from '../stock-issues/stock-issues.service';
-import { NewStockIssue } from '../stock-issues/stock-issue.model';
-import { StockTransfersService } from '../stock-transfers/stock-transfers.service';
-import { StockBalancesService } from './stock-balances.service';
-import { StockBalances } from './stock-balances';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { PLATFORM_ID } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { BehaviorSubject, firstValueFrom, of } from 'rxjs';
 
-describe('StockBalancesService', () => {
-  let service: StockBalancesService;
+import { InventoryItem } from '../items/item.model';
+import { ItemsService } from '../items/items.service';
+import { Warehouse } from '../warehouses/warehouse.model';
+import { WarehousesService } from '../warehouses/warehouses.service';
+import { InventoryBalancesApiService } from './inventory-balances-api.service';
+import { StockBalance } from './stock-balance.model';
+import { StockBalances } from './stock-balances';
+import { StockBalancesService } from './stock-balances.service';
+
+const API_URL = 'http://localhost:8080/api/inventory/balances';
+
+const apiBalances: StockBalance[] = [
+  {
+    itemId: 1,
+    itemCode: 'BOX-01',
+    itemName: 'Storage box',
+    warehouseId: 1,
+    warehouseName: 'North warehouse',
+    availableQuantity: 9,
+    reorderLevel: 10,
+    lowStock: true,
+  },
+  {
+    itemId: 1,
+    itemCode: 'BOX-01',
+    itemName: 'Storage box',
+    warehouseId: 2,
+    warehouseName: 'South warehouse',
+    availableQuantity: 3,
+    reorderLevel: 10,
+    lowStock: true,
+  },
+  {
+    itemId: 2,
+    itemCode: 'TAPE-02',
+    itemName: 'Packing tape',
+    warehouseId: 1,
+    warehouseName: 'North warehouse',
+    availableQuantity: 0,
+    reorderLevel: 2,
+    lowStock: true,
+  },
+  {
+    itemId: 3,
+    itemCode: 'WRAP-03',
+    itemName: 'Bubble wrap',
+    warehouseId: 2,
+    warehouseName: 'South warehouse',
+    availableQuantity: 7,
+    reorderLevel: 4,
+    lowStock: false,
+  },
+];
+
+const items: InventoryItem[] = [
+  {
+    id: 1,
+    sku: 'BOX-01',
+    name: 'Storage box',
+    category: 'Packaging',
+    unit: 'Each',
+    minStock: 10,
+    status: 'Active',
+  },
+  {
+    id: 2,
+    sku: 'TAPE-02',
+    name: 'Packing tape',
+    category: 'Packaging',
+    unit: 'Roll',
+    minStock: 2,
+    status: 'Active',
+  },
+  {
+    id: 3,
+    sku: 'WRAP-03',
+    name: 'Bubble wrap',
+    category: 'Packaging',
+    unit: 'Roll',
+    minStock: 4,
+    status: 'Active',
+  },
+];
+
+const warehouses: Warehouse[] = [
+  { id: 1, code: 'NORTH', name: 'North warehouse', location: 'North', status: 'Active' },
+  { id: 2, code: 'SOUTH', name: 'South warehouse', location: 'South', status: 'Active' },
+];
+
+describe('InventoryBalancesApiService', () => {
+  let service: InventoryBalancesApiService;
+  let http: HttpTestingController;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
-    service = TestBed.inject(StockBalancesService);
-  });
-
-  it('calculates balances from opening stock and completed stock movements', async () => {
-    const balances = await firstValueFrom(service.balances$);
-    const mainCartons = balances.find(
-      (balance) => balance.itemId === 101 && balance.warehouseId === 1,
-    );
-    const cancelledIssueItem = balances.find(
-      (balance) => balance.itemId === 106 && balance.warehouseId === 3,
-    );
-    const lowStock = balances.find(
-      (balance) => balance.itemId === 104 && balance.warehouseId === 1,
-    );
-    const outOfStock = balances.find(
-      (balance) => balance.itemId === 105 && balance.warehouseId === 1,
-    );
-
-    expect(mainCartons).toMatchObject({
-      openingStock: 25,
-      totalStockReceived: 120,
-      totalStockIssued: 24,
-      totalTransfersIn: 0,
-      totalTransfersOut: 20,
-      availableStock: 101,
-      status: 'In Stock',
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: PLATFORM_ID, useValue: 'server' },
+      ],
     });
-    expect(cancelledIssueItem).toMatchObject({
-      totalStockReceived: 18,
-      totalStockIssued: 0,
-      totalTransfersOut: 0,
-      totalTransfersIn: 0,
-      availableStock: 18,
-      status: 'In Stock',
-    });
-    expect(lowStock?.status).toBe('Low Stock');
-    expect(outOfStock?.status).toBe('Out of Stock');
+    service = TestBed.inject(InventoryBalancesApiService);
+    http = TestBed.inject(HttpTestingController);
   });
 
-  it('recomputes balances when a receipt is added', async () => {
-    const receiptsService = TestBed.inject(StockReceiptsService);
-    const receipt: NewStockReceipt = {
-      receiptNumber: 'RCV-3010',
-      receiptDate: '2026-11-25',
-      itemId: 101,
-      warehouseId: 1,
-      supplierName: 'Test supplier',
-      quantityReceived: 10,
-      referenceNumber: '',
-      notes: '',
-      status: 'Received',
-    };
+  afterEach(() => http.verify());
 
-    receiptsService.addReceipt(receipt);
+  it('loads the backend balance DTO without recalculating stock', async () => {
+    const result = firstValueFrom(service.loadBalances());
+    const request = http.expectOne(API_URL);
+    expect(request.request.method).toBe('GET');
+    request.flush(apiBalances);
 
-    const balances = await firstValueFrom(service.balances$);
-    const mainCartons = balances.find(
-      (balance) => balance.itemId === 101 && balance.warehouseId === 1,
-    );
-    expect(mainCartons?.totalStockReceived).toBe(130);
-    expect(mainCartons?.availableStock).toBe(111);
+    await expect(result).resolves.toEqual(apiBalances);
+    expect(service.getCurrentBalances()).toEqual(apiBalances);
   });
 
-  it('recomputes balances when the existing issue service emits a new issue', async () => {
-    const issuesService = TestBed.inject(StockIssuesService);
-    const issue: NewStockIssue = {
-      issueDate: '2026-11-25',
-      itemId: 101,
-      warehouseId: 1,
-      quantityIssued: 5,
-      recipient: 'Test Department',
-      referenceNumber: '',
-      reason: 'Balance calculation test',
-      notes: '',
-      status: 'Issued',
-    };
+  it('passes warehouse filtering to the backend query parameter', async () => {
+    const result = firstValueFrom(service.loadBalances(2));
+    const request = http.expectOne(`${API_URL}?warehouseId=2`);
+    expect(request.request.method).toBe('GET');
+    request.flush(apiBalances.slice(1, 2));
 
-    issuesService.addIssue(issue);
-
-    const balances = await firstValueFrom(service.balances$);
-    const mainCartons = balances.find(
-      (balance) => balance.itemId === 101 && balance.warehouseId === 1,
-    );
-    expect(mainCartons?.totalStockIssued).toBe(29);
-    expect(mainCartons?.availableStock).toBe(96);
-  });
-
-  it('moves stock only when a transfer becomes completed', async () => {
-    const transfersService = TestBed.inject(StockTransfersService);
-    const existingTransfer = (await firstValueFrom(transfersService.transfers$)).find(
-      (transfer) => transfer.transferNumber === 'TRF-4003',
-    );
-    expect(existingTransfer?.status).toBe('Pending');
-    if (!existingTransfer) {
-      throw new Error('Expected seeded pending transfer TRF-4003.');
-    }
-
-    transfersService.updateTransfer({ ...existingTransfer, status: 'Completed' });
-
-    const balances = await firstValueFrom(service.balances$);
-    const source = balances.find((balance) => balance.itemId === 103 && balance.warehouseId === 4);
-    const destination = balances.find(
-      (balance) => balance.itemId === 103 && balance.warehouseId === 1,
-    );
-    expect(source).toMatchObject({ totalTransfersOut: 8, availableStock: 28 });
-    expect(destination).toMatchObject({ totalTransfersIn: 8, availableStock: 20 });
-  });
-
-  it('does not count pending, in-transit, or cancelled transfers', async () => {
-    const balances = await firstValueFrom(service.balances$);
-    const inTransitSource = balances.find(
-      (balance) => balance.itemId === 102 && balance.warehouseId === 2,
-    );
-    const cancelledDestination = balances.find(
-      (balance) => balance.itemId === 106 && balance.warehouseId === 5,
-    );
-
-    expect(inTransitSource?.totalTransfersOut).toBe(0);
-    expect(cancelledDestination?.totalTransfersIn).toBe(0);
-  });
-
-  it('rejects issues that exceed available stock', () => {
-    const issuesService = TestBed.inject(StockIssuesService);
-    const issue: NewStockIssue = {
-      issueDate: '2026-11-25',
-      itemId: 105,
-      warehouseId: 1,
-      quantityIssued: 1,
-      recipient: 'Test Department',
-      referenceNumber: '',
-      reason: 'Stock guard test',
-      notes: '',
-      status: 'Issued',
-    };
-
-    expect(() => issuesService.addIssue(issue)).toThrow('0 available, but 1 requested');
+    await expect(result).resolves.toEqual([apiBalances[1]]);
   });
 });
 
 describe('StockBalances', () => {
+  let fixture: ComponentFixture<StockBalances>;
+  let reloadBalances: ReturnType<typeof vi.fn>;
+  let loadError: BehaviorSubject<unknown | null>;
+
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [StockBalances] }).compileComponents();
+    reloadBalances = vi.fn();
+    loadError = new BehaviorSubject<unknown | null>(null);
+    const balancesSubject = new BehaviorSubject(apiBalances);
+    const itemsSubject = new BehaviorSubject(items);
+    const warehousesSubject = new BehaviorSubject(warehouses);
+
+    await TestBed.configureTestingModule({
+      imports: [StockBalances],
+      providers: [
+        { provide: PLATFORM_ID, useValue: 'server' },
+        {
+          provide: StockBalancesService,
+          useValue: {
+            balances$: balancesSubject.asObservable(),
+            loading$: of(false),
+            loadError$: loadError.asObservable(),
+            reloadBalances,
+          },
+        },
+        {
+          provide: ItemsService,
+          useValue: {
+            items$: itemsSubject.asObservable(),
+            loading$: of(false),
+            loadError$: of(null),
+            reloadItems: vi.fn(),
+          },
+        },
+        {
+          provide: WarehousesService,
+          useValue: {
+            warehouses$: warehousesSubject.asObservable(),
+            loading$: of(false),
+            loadError$: of(null),
+            reloadWarehouses: vi.fn(),
+          },
+        },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(StockBalances);
+    fixture.detectChanges();
   });
 
-  it('summarizes distinct items and totals across their visible warehouse balances', () => {
-    const fixture = TestBed.createComponent(StockBalances);
-    fixture.detectChanges();
+  it('renders backend quantities and low-stock indicators', () => {
+    const rows = fixture.nativeElement.querySelectorAll('tbody tr') as NodeListOf<HTMLElement>;
+    expect(rows.length).toBe(4);
+    const storageBoxRow = Array.from(rows).find((row) => row.textContent?.includes('BOX-01'));
+    const outOfStockRow = Array.from(rows).find((row) => row.textContent?.includes('Out of Stock'));
+    expect(storageBoxRow?.textContent).toContain('9');
+    expect(storageBoxRow?.textContent).toContain('10');
+    expect(storageBoxRow?.textContent).toContain('Low Stock');
+    expect(outOfStockRow?.textContent).toContain('TAPE-02');
 
-    const summaryCards = fixture.nativeElement.querySelectorAll(
-      '.summary-card strong',
-    ) as NodeListOf<HTMLElement>;
-    const summaryValues = Array.from(summaryCards, (element) => element.textContent?.trim() ?? '');
-
-    expect(summaryValues).toEqual(['6', '231', '2', '0']);
+    const summaryValues = Array.from(
+      fixture.nativeElement.querySelectorAll('.summary-card strong') as NodeListOf<HTMLElement>,
+      (element) => element.textContent?.trim() ?? '',
+    );
+    expect(summaryValues).toEqual(['3', '19', '1', '1']);
   });
 
-  it('searches by item or SKU and applies warehouse, category, and status filters', () => {
-    const fixture = TestBed.createComponent(StockBalances);
-    fixture.detectChanges();
-
-    const search = fixture.nativeElement.querySelector('#balance-search') as HTMLInputElement;
-    search.value = 'PKG-BOX-M';
-    search.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('tbody tr').length).toBe(5);
-
+  it('requests a warehouse filter from the backend and keeps other filters local', () => {
     const warehouse = fixture.nativeElement.querySelector(
       '#balance-warehouse-filter',
     ) as HTMLSelectElement;
-    warehouse.value = '1';
+    warehouse.value = '2';
     warehouse.dispatchEvent(new Event('change'));
-    const category = fixture.nativeElement.querySelector(
-      '#balance-category-filter',
-    ) as HTMLSelectElement;
-    category.value = 'Packaging';
-    category.dispatchEvent(new Event('change'));
-    const status = fixture.nativeElement.querySelector(
-      '#balance-status-filter',
-    ) as HTMLSelectElement;
-    status.value = 'In Stock';
-    status.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
 
-    const rows = fixture.nativeElement.querySelectorAll('tbody tr');
-    expect(rows.length).toBe(1);
-    expect(rows[0].textContent).toContain('Main Distribution Centre');
-  });
-
-  it('shows item and warehouse movement details', () => {
-    const fixture = TestBed.createComponent(StockBalances);
+    expect(reloadBalances).toHaveBeenCalledWith(2);
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('tbody tr').length).toBe(2);
 
     const search = fixture.nativeElement.querySelector('#balance-search') as HTMLInputElement;
-    search.value = 'PKG-BOX-M';
+    search.value = 'WRAP-03';
     search.dispatchEvent(new Event('input'));
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('tbody tr').length).toBe(1);
+    expect(fixture.nativeElement.querySelector('tbody')?.textContent).toContain('Bubble wrap');
+  });
 
-    const detailsButton = Array.from(
+  it('shows backend low-stock state in the details dialog', () => {
+    const detailButton = Array.from(
       fixture.nativeElement.querySelectorAll('.details-button') as NodeListOf<HTMLButtonElement>,
-    ).find(
-      (button) => button.getAttribute('aria-label')?.includes('Main Distribution Centre') ?? false,
-    );
-    detailsButton?.click();
+    ).find((button) => button.getAttribute('aria-label')?.includes('Storage box'));
+    if (!detailButton) {
+      throw new Error('Storage box details button was not rendered.');
+    }
+    detailButton.click();
     fixture.detectChanges();
 
     const dialog = fixture.nativeElement.querySelector('[role="dialog"]') as HTMLElement;
-    expect(dialog.textContent).toContain('101 Each');
-    expect(dialog.textContent).toContain('RCV-3001');
-    expect(dialog.textContent).toContain('ISS-2001');
-    expect(dialog.textContent).toContain('TRF-4001');
+    expect(dialog.textContent).toContain('9 Each');
+    expect(dialog.textContent).toContain('10 Each');
+    expect(dialog.textContent).toContain('Low-stock flag');
+    expect(dialog.textContent).toContain('Yes');
+    expect(dialog.textContent).not.toContain('Opening stock');
+  });
+
+  it('shows a load error and allows retry', () => {
+    loadError.next(new Error('Unavailable'));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
+      'Unable to load inventory balances',
+    );
+    (fixture.nativeElement.querySelector('.alert button') as HTMLButtonElement).click();
+    expect(reloadBalances).toHaveBeenCalled();
   });
 });

@@ -1,6 +1,5 @@
 export const environment = {
   production: true,
-  // Keep blank until the backend host is agreed.
-  apiBaseUrl: '',
-  dataSource: 'mock' as const,
+  apiBaseUrl: 'http://localhost:8080/api',
+  dataSource: 'api' as const,
 };

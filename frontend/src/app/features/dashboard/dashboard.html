@@ -9,6 +9,13 @@
       </p>
     </div>
     <div class="heading-actions">
+      <button
+        class="btn btn-outline-secondary btn-sm action-button"
+        type="button"
+        (click)="refreshDashboard()"
+      >
+        Refresh data
+      </button>
       <a class="btn btn-outline-secondary btn-sm action-button" routerLink="/stock-transfers">
         New transfer
       </a>
@@ -29,6 +36,15 @@
     <a routerLink="/stock-balances">Stock Balances</a>
   </nav>
 
+  @if (loadError()) {
+    <div class="alert alert-danger" role="alert">
+      Some dashboard data could not be loaded. Check the backend connection and retry.
+      <button class="btn btn-sm btn-outline-danger ms-2" type="button" (click)="refreshDashboard()">
+        Retry
+      </button>
+    </div>
+  }
+
   <div class="row g-3 stat-grid">
     @for (stat of stats(); track stat.label) {
       <div class="col-12 col-sm-6 col-xl">
@@ -38,7 +54,15 @@
             <span class="stat-context">Live summary</span>
           </div>
           <p class="stat-label">{{ stat.label }}</p>
-          <strong class="stat-value">{{ stat.value | number: '1.0-2' }}</strong>
+          @if (stat.value === null) {
+            <strong class="stat-value">—</strong>
+          } @else if (loadError()) {
+            <p class="chart-summary" role="status">
+              Movement chart unavailable because source data failed to load.
+            </p>
+          } @else {
+            <strong class="stat-value">{{ stat.value | number: '1.0-2' }}</strong>
+          }
           <span class="stat-detail">{{ stat.detail }}</span>
         </article>
       </div>
@@ -51,76 +75,108 @@
         <div class="panel-heading">
           <div>
             <h2>Stock movement</h2>
-            <p>Daily movement record counts for the last 7 days</p>
+            <p>Receipts, issues, and completed transfers over the last 7 days</p>
           </div>
           <span class="chart-period">7 days</span>
         </div>
 
-        <div class="chart-summary">
-          <strong>{{ movementChart().totalRecords | number }}</strong>
-          <span>movement records</span>
-        </div>
+        @if (loading()) {
+          <p class="chart-summary" role="status">Loading movement and summary data…</p>
+        } @else {
+          <div class="chart-summary">
+            <strong>{{ movementChart().totalRecords | number }}</strong>
+            <span>recorded movements in this period</span>
+          </div>
 
-        <div class="chart-container">
-          <svg
-            class="movement-chart"
-            viewBox="0 0 700 220"
-            role="img"
-            [attr.aria-label]="movementChart().ariaLabel"
-          >
-            <line class="chart-grid" x1="30" y1="40" x2="670" y2="40" />
-            <line class="chart-grid" x1="30" y1="105" x2="670" y2="105" />
-            <line class="chart-grid chart-baseline" x1="30" y1="170" x2="670" y2="170" />
-            <polyline
-              class="chart-series receipts-series"
-              [attr.points]="movementChart().receiptPoints"
-            />
-            <polyline
-              class="chart-series issues-series"
-              [attr.points]="movementChart().issuePoints"
-            />
-            <polyline
-              class="chart-series transfers-series"
-              [attr.points]="movementChart().transferPoints"
-            />
-            @for (day of movementChart().days; track day.key) {
-              <circle
-                class="chart-point receipts-point"
-                [attr.cx]="day.x"
-                [attr.cy]="day.receiptY"
-                r="3"
+          <div class="chart-container">
+            <svg
+              class="movement-chart"
+              viewBox="0 0 700 220"
+              role="img"
+              [attr.aria-label]="movementChart().ariaLabel"
+            >
+              <line class="chart-grid" x1="30" y1="40" x2="670" y2="40" />
+              <line class="chart-grid" x1="30" y1="105" x2="670" y2="105" />
+              <line class="chart-grid chart-baseline" x1="30" y1="170" x2="670" y2="170" />
+              <polyline
+                class="chart-series receipts-series"
+                [attr.points]="movementChart().receiptPoints"
               />
-              <circle
-                class="chart-point issues-point"
-                [attr.cx]="day.x"
-                [attr.cy]="day.issueY"
-                r="3"
+              <polyline
+                class="chart-series issues-series"
+                [attr.points]="movementChart().issuePoints"
               />
-              <circle
-                class="chart-point transfers-point"
-                [attr.cx]="day.x"
-                [attr.cy]="day.transferY"
-                r="3"
+              <polyline
+                class="chart-series transfers-series"
+                [attr.points]="movementChart().transferPoints"
               />
-              <text class="chart-day" [attr.x]="day.x" y="199">{{ day.label }}</text>
-            }
-          </svg>
-        </div>
+              @for (day of movementChart().days; track day.key) {
+                <circle
+                  class="chart-point receipts-point"
+                  [attr.cx]="day.x"
+                  [attr.cy]="day.receiptY"
+                  r="3"
+                />
+                <circle
+                  class="chart-point issues-point"
+                  [attr.cx]="day.x"
+                  [attr.cy]="day.issueY"
+                  r="3"
+                />
+                <circle
+                  class="chart-point transfers-point"
+                  [attr.cx]="day.x"
+                  [attr.cy]="day.transferY"
+                  r="3"
+                />
+                <text class="chart-day" [attr.x]="day.x" y="199">{{ day.label }}</text>
+              }
+            </svg>
+          </div>
 
-        <div class="chart-legend" aria-label="Chart series">
-          <span
-            ><i class="legend-dot receipts-dot"></i> Receipts
-            <strong>{{ movementChart().receiptTotal }}</strong></span
+          <div class="chart-legend" aria-label="Chart series">
+            <span
+              ><i class="legend-dot receipts-dot"></i> Receipts
+              <strong>{{ movementChart().receiptTotal }}</strong></span
+            >
+            <span
+              ><i class="legend-dot issues-dot"></i> Issues
+              <strong>{{ movementChart().issueTotal }}</strong></span
+            >
+            <span
+              ><i class="legend-dot transfers-dot"></i> Completed transfers
+              <strong>{{ movementChart().transferTotal }}</strong></span
+            >
+          </div>
+        }
+
+        @if (summary(); as totals) {
+          <div
+            class="chart-legend dashboard-api-summary"
+            aria-label="Backend dashboard movement totals"
           >
-          <span
-            ><i class="legend-dot issues-dot"></i> Issues
-            <strong>{{ movementChart().issueTotal }}</strong></span
-          >
-          <span
-            ><i class="legend-dot transfers-dot"></i> Transfers
-            <strong>{{ movementChart().transferTotal }}</strong></span
-          >
-        </div>
+            <div>
+              <strong>Movement records</strong>
+              <span>Receipts {{ totals.totalReceipts }}</span>
+              <span>Issues {{ totals.totalIssues }}</span>
+              <span>Transfers {{ totals.totalTransfers }}</span>
+            </div>
+            <div>
+              <strong>Transfer status</strong>
+              <span>Pending {{ totals.pendingTransfers }}</span>
+              <span>Completed {{ totals.completedTransfers }}</span>
+              <span>Cancelled {{ totals.cancelledTransfers }}</span>
+            </div>
+            <div>
+              <strong>Recorded units</strong>
+              <span>Received {{ totals.totalReceivedUnits | number }}</span>
+              <span>Issued {{ totals.totalIssuedUnits | number }}</span>
+              <span>Transferred {{ totals.totalTransferredUnits | number }}</span>
+            </div>
+          </div>
+        } @else if (loadError()) {
+          <p class="summary-help">Backend movement summary unavailable.</p>
+        }
       </section>
     </div>
 
@@ -144,34 +200,44 @@
               </tr>
             </thead>
             <tbody>
-              @for (summary of warehouseSummaries(); track summary.warehouse.id) {
+              @if (loading()) {
                 <tr>
-                  <td>
-                    <a class="warehouse-name" routerLink="/stock-balances">
-                      {{ summary.warehouse.name }}
-                    </a>
-                    <small>{{ summary.warehouse.code }}</small>
-                  </td>
-                  <td>{{ summary.availableStock | number }}</td>
-                  <td>
-                    @if (summary.lowStockCount) {
-                      <span class="badge text-bg-warning">{{ summary.lowStockCount }}</span>
-                    } @else {
-                      <span class="count-empty">—</span>
-                    }
-                  </td>
-                  <td>
-                    @if (summary.outOfStockCount) {
-                      <span class="badge text-bg-danger">{{ summary.outOfStockCount }}</span>
-                    } @else {
-                      <span class="count-empty">—</span>
-                    }
-                  </td>
+                  <td class="empty-cell" colspan="4">Loading warehouse balances…</td>
                 </tr>
-              } @empty {
+              } @else if (loadError()) {
                 <tr>
-                  <td class="empty-cell" colspan="4">No warehouses available.</td>
+                  <td class="empty-cell" colspan="4">Warehouse summary unavailable.</td>
                 </tr>
+              } @else {
+                @for (summary of warehouseSummaries(); track summary.warehouse.id) {
+                  <tr>
+                    <td>
+                      <a class="warehouse-name" routerLink="/stock-balances">
+                        {{ summary.warehouse.name }}
+                      </a>
+                      <small>{{ summary.warehouse.code }}</small>
+                    </td>
+                    <td>{{ summary.availableStock | number }}</td>
+                    <td>
+                      @if (summary.lowStockCount) {
+                        <span class="badge text-bg-warning">{{ summary.lowStockCount }}</span>
+                      } @else {
+                        <span class="count-empty">—</span>
+                      }
+                    </td>
+                    <td>
+                      @if (summary.outOfStockCount) {
+                        <span class="badge text-bg-danger">{{ summary.outOfStockCount }}</span>
+                      } @else {
+                        <span class="count-empty">—</span>
+                      }
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="empty-cell" colspan="4">No warehouses available.</td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -194,7 +260,7 @@
         <thead>
           <tr>
             <th scope="col">Item</th>
-            <th scope="col">SKU</th>
+            <th scope="col">Item Code</th>
             <th scope="col">Warehouse</th>
             <th scope="col">Available</th>
             <th scope="col">Minimum</th>
@@ -202,23 +268,33 @@
           </tr>
         </thead>
         <tbody>
-          @for (balance of stockAlerts(); track balance.itemId + ':' + balance.warehouseId) {
+          @if (loading()) {
             <tr>
-              <td class="item-name">{{ balance.itemName }}</td>
-              <td class="sku-value">{{ balance.sku }}</td>
-              <td>{{ balance.warehouseName }}</td>
-              <td>{{ balance.availableStock | number }} {{ balance.itemUnit }}</td>
-              <td>{{ balance.minStockLevel | number }} {{ balance.itemUnit }}</td>
-              <td>
-                <span class="badge rounded-pill" [class]="stockStatusClass(balance.status)">
-                  {{ balance.status }}
-                </span>
-              </td>
+              <td class="empty-cell" colspan="6">Loading stock alerts…</td>
             </tr>
-          } @empty {
+          } @else if (loadError()) {
             <tr>
-              <td class="empty-cell" colspan="6">No low-stock or out-of-stock items.</td>
+              <td class="empty-cell" colspan="6">Stock alerts unavailable.</td>
             </tr>
+          } @else {
+            @for (balance of stockAlerts(); track balance.itemId + ':' + balance.warehouseId) {
+              <tr>
+                <td class="item-name">{{ balance.itemName }}</td>
+                <td class="sku-value">{{ balance.itemCode }}</td>
+                <td>{{ balance.warehouseName }}</td>
+                <td>{{ balance.availableQuantity | number }} {{ balance.itemUnit }}</td>
+                <td>{{ balance.reorderLevel | number }} {{ balance.itemUnit }}</td>
+                <td>
+                  <span class="badge rounded-pill" [class]="stockStatusClass(balance.status)">
+                    {{ balance.status }}
+                  </span>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td class="empty-cell" colspan="6">No balances are flagged as low stock.</td>
+              </tr>
+            }
           }
         </tbody>
       </table>
@@ -242,30 +318,38 @@
                 <th scope="col">Receipt</th>
                 <th scope="col">Date</th>
                 <th scope="col">Item / Warehouse</th>
-                <th scope="col">Supplier</th>
                 <th scope="col">Quantity</th>
                 <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody>
-              @for (receipt of recentReceipts(); track receipt.id) {
+              @if (loading()) {
                 <tr>
-                  <td class="reference-value">{{ receipt.receiptNumber }}</td>
-                  <td>{{ receipt.receiptDate | date: 'MMM d, y' }}</td>
-                  <td>
-                    <span class="primary-value">{{ receipt.itemName }}</span>
-                    <small>{{ receipt.warehouseName }}</small>
-                  </td>
-                  <td>{{ receipt.supplierName }}</td>
-                  <td>{{ receipt.quantityReceived | number }} {{ receipt.itemUnit }}</td>
-                  <td>
-                    <span class="badge rounded-pill text-bg-success">{{ receipt.status }}</span>
-                  </td>
+                  <td class="empty-cell" colspan="5">Loading receipts…</td>
                 </tr>
-              } @empty {
+              } @else if (loadError()) {
                 <tr>
-                  <td class="empty-cell" colspan="6">No stock receipts recorded.</td>
+                  <td class="empty-cell" colspan="5">Receipt data unavailable.</td>
                 </tr>
+              } @else {
+                @for (receipt of recentReceipts(); track receipt.id) {
+                  <tr>
+                    <td class="reference-value">{{ receipt.receiptNumber }}</td>
+                    <td>{{ receipt.receiptDate | date: 'MMM d, y' }}</td>
+                    <td>
+                      <span class="primary-value">{{ receipt.itemName }}</span>
+                      <small>{{ receipt.warehouseName }}</small>
+                    </td>
+                    <td>{{ receipt.quantityReceived | number }} {{ receipt.itemUnit }}</td>
+                    <td>
+                      <span class="badge rounded-pill text-bg-success">{{ receipt.status }}</span>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="empty-cell" colspan="5">No stock receipts recorded.</td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -289,34 +373,38 @@
                 <th scope="col">Issue</th>
                 <th scope="col">Date</th>
                 <th scope="col">Item / Warehouse</th>
-                <th scope="col">Recipient</th>
                 <th scope="col">Quantity</th>
                 <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody>
-              @for (issue of recentIssues(); track issue.id) {
+              @if (loading()) {
                 <tr>
-                  <td class="reference-value">{{ issue.issueNumber }}</td>
-                  <td>{{ issue.issueDate | date: 'MMM d, y' }}</td>
-                  <td>
-                    <span class="primary-value">{{ issue.itemName }}</span>
-                    <small>{{ issue.warehouseName }}</small>
-                  </td>
-                  <td>{{ issue.recipient }}</td>
-                  <td>{{ issue.quantityIssued | number }} {{ issue.itemUnit }}</td>
-                  <td>
-                    @if (issue.status === 'Issued') {
+                  <td class="empty-cell" colspan="5">Loading issues…</td>
+                </tr>
+              } @else if (loadError()) {
+                <tr>
+                  <td class="empty-cell" colspan="5">Issue data unavailable.</td>
+                </tr>
+              } @else {
+                @for (issue of recentIssues(); track issue.id) {
+                  <tr>
+                    <td class="reference-value">{{ issue.issueNumber }}</td>
+                    <td>{{ issue.issueDate | date: 'MMM d, y' }}</td>
+                    <td>
+                      <span class="primary-value">{{ issue.itemName }}</span>
+                      <small>{{ issue.warehouseName }}</small>
+                    </td>
+                    <td>{{ issue.quantityIssued | number }} {{ issue.itemUnit }}</td>
+                    <td>
                       <span class="badge rounded-pill text-bg-success">{{ issue.status }}</span>
-                    } @else {
-                      <span class="badge rounded-pill text-bg-secondary">{{ issue.status }}</span>
-                    }
-                  </td>
-                </tr>
-              } @empty {
-                <tr>
-                  <td class="empty-cell" colspan="6">No stock issues recorded.</td>
-                </tr>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="empty-cell" colspan="5">No stock issues recorded.</td>
+                  </tr>
+                }
               }
             </tbody>
           </table>
@@ -347,41 +435,48 @@
               </tr>
             </thead>
             <tbody>
-              @for (transfer of recentTransfers(); track transfer.id) {
+              @if (loading()) {
                 <tr>
-                  <td class="reference-value">{{ transfer.transferNumber }}</td>
-                  <td>{{ transfer.transferDate | date: 'MMM d, y' }}</td>
-                  <td class="primary-value">{{ transfer.itemName }}</td>
-                  <td>{{ transfer.sourceWarehouseName }}</td>
-                  <td>{{ transfer.destinationWarehouseName }}</td>
-                  <td>{{ transfer.quantity | number }} {{ transfer.itemUnit }}</td>
-                  <td>
-                    @switch (transfer.status) {
-                      @case ('Pending') {
-                        <span class="badge rounded-pill text-bg-warning">{{
-                          transfer.status
-                        }}</span>
-                      }
-                      @case ('In Transit') {
-                        <span class="badge rounded-pill text-bg-info">{{ transfer.status }}</span>
-                      }
-                      @case ('Completed') {
-                        <span class="badge rounded-pill text-bg-success">{{
-                          transfer.status
-                        }}</span>
-                      }
-                      @case ('Cancelled') {
-                        <span class="badge rounded-pill text-bg-secondary">{{
-                          transfer.status
-                        }}</span>
-                      }
-                    }
-                  </td>
+                  <td class="empty-cell" colspan="7">Loading transfers…</td>
                 </tr>
-              } @empty {
+              } @else if (loadError()) {
                 <tr>
-                  <td class="empty-cell" colspan="7">No stock transfers recorded.</td>
+                  <td class="empty-cell" colspan="7">Transfer data unavailable.</td>
                 </tr>
+              } @else {
+                @for (transfer of recentTransfers(); track transfer.id) {
+                  <tr>
+                    <td class="reference-value">{{ transfer.transferNumber }}</td>
+                    <td>{{ transfer.transferDate | date: 'MMM d, y' }}</td>
+                    <td class="primary-value">{{ transfer.itemName }}</td>
+                    <td>{{ transfer.sourceWarehouseName }}</td>
+                    <td>{{ transfer.destinationWarehouseName }}</td>
+                    <td>{{ transfer.quantity | number }} {{ transfer.itemUnit }}</td>
+                    <td>
+                      @switch (transfer.status) {
+                        @case ('Pending') {
+                          <span class="badge rounded-pill text-bg-warning">{{
+                            transfer.status
+                          }}</span>
+                        }
+                        @case ('Completed') {
+                          <span class="badge rounded-pill text-bg-success">{{
+                            transfer.status
+                          }}</span>
+                        }
+                        @case ('Cancelled') {
+                          <span class="badge rounded-pill text-bg-secondary">{{
+                            transfer.status
+                          }}</span>
+                        }
+                      }
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td class="empty-cell" colspan="7">No stock transfers recorded.</td>
+                  </tr>
+                }
               }
             </tbody>
           </table>

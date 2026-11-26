@@ -3,9 +3,7 @@
     <div>
       <p class="eyebrow">LOCATIONS &amp; OPERATIONS</p>
       <h1>Warehouses</h1>
-      <p class="page-description">
-        Manage warehouse locations and the people responsible for them.
-      </p>
+      <p class="page-description">Manage warehouse names, codes, and locations.</p>
     </div>
     <button class="btn btn-primary add-warehouse-button" type="button" (click)="openAddForm()">
       <span aria-hidden="true">+</span> Add warehouse
@@ -22,6 +20,27 @@
         (click)="dismissNotice()"
       ></button>
     </div>
+  }
+
+  @if (loading()) {
+    <div class="alert alert-info py-2" role="status">Loading warehouses from the server...</div>
+  }
+
+  @if (loadError()) {
+    <div class="alert alert-danger d-flex align-items-center gap-3" role="alert">
+      <span>{{ loadError() }}</span>
+      <button
+        class="btn btn-sm btn-outline-danger ms-auto"
+        type="button"
+        (click)="retryLoadWarehouses()"
+      >
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (editError()) {
+    <div class="alert alert-danger" role="alert">{{ editError() }}</div>
   }
 
   <div class="row g-3 warehouse-summary">
@@ -115,25 +134,6 @@
                 Location <span aria-hidden="true">{{ sorting.indicator('location') }}</span>
               </button>
             </th>
-            <th scope="col" [attr.aria-sort]="sorting.ariaSort('managerName')">
-              <button
-                class="table-sort-button"
-                type="button"
-                (click)="sorting.toggle('managerName')"
-              >
-                Manager Name <span aria-hidden="true">{{ sorting.indicator('managerName') }}</span>
-              </button>
-            </th>
-            <th scope="col" [attr.aria-sort]="sorting.ariaSort('contactNumber')">
-              <button
-                class="table-sort-button"
-                type="button"
-                (click)="sorting.toggle('contactNumber')"
-              >
-                Contact Number
-                <span aria-hidden="true">{{ sorting.indicator('contactNumber') }}</span>
-              </button>
-            </th>
             <th scope="col" [attr.aria-sort]="sorting.ariaSort('status')">
               <button class="table-sort-button" type="button" (click)="sorting.toggle('status')">
                 Status <span aria-hidden="true">{{ sorting.indicator('status') }}</span>
@@ -150,8 +150,6 @@
                 <span class="warehouse-code">{{ warehouse.code }}</span>
               </td>
               <td class="location-cell">{{ warehouse.location }}</td>
-              <td>{{ warehouse.managerName }}</td>
-              <td>{{ warehouse.contactNumber }}</td>
               <td>
                 <span
                   class="status-badge"
@@ -166,28 +164,42 @@
                   <button
                     class="btn btn-sm action-button edit-button"
                     type="button"
+                    [disabled]="loadingWarehouseId() !== null"
                     [attr.aria-label]="'Edit ' + warehouse.name"
                     (click)="openEditForm(warehouse)"
                   >
-                    Edit
+                    {{ loadingWarehouseId() === warehouse.id ? 'Loading...' : 'Edit' }}
                   </button>
                   <button
                     class="btn btn-sm action-button delete-button"
                     type="button"
-                    [attr.aria-label]="'Delete ' + warehouse.name"
+                    [attr.aria-label]="'Deactivate ' + warehouse.name"
                     (click)="requestDelete(warehouse)"
                   >
-                    Delete
+                    Deactivate
                   </button>
                 </div>
               </td>
             </tr>
           } @empty {
             <tr>
-              <td class="empty-cell" colspan="7">
+              <td class="empty-cell" colspan="5">
                 <div class="empty-state">
                   <span class="empty-symbol" aria-hidden="true">WH</span>
-                  @if (warehouses().length === 0) {
+                  @if (loading()) {
+                    <h3>Loading warehouses</h3>
+                    <p>The directory is being fetched from the server.</p>
+                  } @else if (loadError()) {
+                    <h3>Directory unavailable</h3>
+                    <p>Retry the request to load warehouses.</p>
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      (click)="retryLoadWarehouses()"
+                    >
+                      Retry
+                    </button>
+                  } @else if (warehouses().length === 0) {
                     <h3>No warehouses yet</h3>
                     <p>Add your first warehouse to start organizing stock locations.</p>
                     <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
@@ -229,7 +241,7 @@
           <h2 id="warehouse-dialog-title">
             {{ warehouseToEdit() ? 'Edit warehouse' : 'Add warehouse' }}
           </h2>
-          <p>Enter the warehouse details. All fields are required.</p>
+          <p>Enter the warehouse details. Name and code are required.</p>
         </div>
         <button class="dialog-close" type="button" aria-label="Close form" (click)="closeForm()">
           ×
@@ -295,54 +307,17 @@
           </div>
 
           <div class="col-12 col-md-6">
-            <label class="form-label" for="warehouse-manager">Manager name <span>*</span></label>
+            <label class="form-label" for="warehouse-status">Status</label>
             <input
-              id="warehouse-manager"
-              class="form-control"
-              [class.is-invalid]="shouldShowError('managerName')"
-              type="text"
-              formControlName="managerName"
-              maxlength="100"
-              autocomplete="name"
-              placeholder="e.g. Jordan Lee"
-            />
-            @if (shouldShowError('managerName')) {
-              <div class="invalid-feedback">{{ validationMessage('managerName') }}</div>
-            }
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="warehouse-contact">Contact number <span>*</span></label>
-            <input
-              id="warehouse-contact"
-              class="form-control"
-              [class.is-invalid]="shouldShowError('contactNumber')"
-              type="tel"
-              formControlName="contactNumber"
-              maxlength="21"
-              autocomplete="tel"
-              placeholder="e.g. +1 (303) 555-0142"
-            />
-            @if (shouldShowError('contactNumber')) {
-              <div class="invalid-feedback">{{ validationMessage('contactNumber') }}</div>
-            }
-          </div>
-
-          <div class="col-12 col-md-6">
-            <label class="form-label" for="warehouse-status">Status <span>*</span></label>
-            <select
               id="warehouse-status"
-              class="form-select"
-              [class.is-invalid]="shouldShowError('status')"
-              formControlName="status"
-            >
-              @for (status of statuses; track status) {
-                <option [value]="status">{{ status }}</option>
-              }
-            </select>
-            @if (shouldShowError('status')) {
-              <div class="invalid-feedback">{{ validationMessage('status') }}</div>
-            }
+              class="form-control"
+              type="text"
+              [value]="warehouseToEdit()?.status ?? 'Active'"
+              readonly
+            />
+            <div class="form-text">
+              New warehouses start active. Use the directory action to deactivate an existing one.
+            </div>
           </div>
         </div>
 
@@ -350,8 +325,8 @@
           <button class="btn btn-outline-secondary" type="button" (click)="closeForm()">
             Cancel
           </button>
-          <button class="btn btn-primary" type="submit">
-            {{ warehouseToEdit() ? 'Save changes' : 'Add warehouse' }}
+          <button class="btn btn-primary" type="submit" [disabled]="saving()">
+            {{ saving() ? 'Saving...' : warehouseToEdit() ? 'Save changes' : 'Add warehouse' }}
           </button>
         </div>
       </form>
@@ -370,17 +345,25 @@
       (keydown.escape)="cancelDelete()"
     >
       <span class="delete-warning-icon" aria-hidden="true">!</span>
-      <h2 id="delete-dialog-title">Delete this warehouse?</h2>
+      <h2 id="delete-dialog-title">Deactivate this warehouse?</h2>
       <p id="delete-dialog-description">
-        <strong>{{ warehouse.name }}</strong> will be removed from this directory. This action
-        cannot be undone.
+        <strong>{{ warehouse.name }}</strong> will be marked inactive. Its stock movement history
+        will be preserved.
       </p>
+      @if (deleteError()) {
+        <div class="alert alert-danger py-2 mt-3" role="alert">{{ deleteError() }}</div>
+      }
       <div class="dialog-actions">
         <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
           Cancel
         </button>
-        <button class="btn btn-danger" type="button" (click)="confirmDelete()">
-          Delete warehouse
+        <button
+          class="btn btn-danger"
+          type="button"
+          [disabled]="deleting()"
+          (click)="confirmDelete()"
+        >
+          {{ deleting() ? 'Deactivating...' : 'Deactivate warehouse' }}
         </button>
       </div>
     </section>

@@ -1,7 +1,8 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
+import { DatePipe, DecimalPipe, isPlatformBrowser } from '@angular/common';
+import { Component, OnInit, PLATFORM_ID, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+
 import { InventoryItem } from '../items/item.model';
 import { ItemsService } from '../items/items.service';
 import { StockIssue } from '../stock-issues/stock-issue.model';
@@ -14,6 +15,7 @@ import { StockBalance, StockBalanceStatus } from '../stock-balances/stock-balanc
 import { StockBalancesService } from '../stock-balances/stock-balances.service';
 import { Warehouse } from '../warehouses/warehouse.model';
 import { WarehousesService } from '../warehouses/warehouses.service';
+import { DashboardSummaryApiService } from './dashboard-summary-api.service';
 
 interface RecentReceipt extends StockReceipt {
   itemName: string;
@@ -32,6 +34,11 @@ interface RecentTransfer extends StockTransfer {
   sourceWarehouseName: string;
   destinationWarehouseName: string;
   itemUnit: string;
+}
+
+interface DashboardBalance extends StockBalance {
+  itemUnit: string;
+  status: StockBalanceStatus;
 }
 
 interface WarehouseSummary {
@@ -72,15 +79,17 @@ interface MovementChart {
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })
-export class Dashboard {
+export class Dashboard implements OnInit {
   protected readonly currentDate = new Date();
 
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly itemsService = inject(ItemsService);
   private readonly warehousesService = inject(WarehousesService);
   private readonly balancesService = inject(StockBalancesService);
   private readonly receiptsService = inject(StockReceiptsService);
   private readonly issuesService = inject(StockIssuesService);
   private readonly transfersService = inject(StockTransfersService);
+  private readonly summaryService = inject(DashboardSummaryApiService);
 
   protected readonly items = toSignal(this.itemsService.items$, { initialValue: [] });
   protected readonly warehouses = toSignal(this.warehousesService.warehouses$, {
@@ -90,6 +99,65 @@ export class Dashboard {
   protected readonly receipts = toSignal(this.receiptsService.receipts$, { initialValue: [] });
   protected readonly issues = toSignal(this.issuesService.issues$, { initialValue: [] });
   protected readonly transfers = toSignal(this.transfersService.transfers$, { initialValue: [] });
+  protected readonly summary = toSignal(this.summaryService.summary$, { initialValue: null });
+
+  private readonly itemsLoading = toSignal(this.itemsService.loading$, { initialValue: false });
+  private readonly warehousesLoading = toSignal(this.warehousesService.loading$, {
+    initialValue: false,
+  });
+  private readonly balancesLoading = toSignal(this.balancesService.loading$, {
+    initialValue: false,
+  });
+  private readonly receiptsLoading = toSignal(this.receiptsService.loading$, {
+    initialValue: false,
+  });
+  private readonly issuesLoading = toSignal(this.issuesService.loading$, { initialValue: false });
+  private readonly transfersLoading = toSignal(this.transfersService.loading$, {
+    initialValue: false,
+  });
+  private readonly summaryLoading = toSignal(this.summaryService.loading$, {
+    initialValue: false,
+  });
+  private readonly itemsLoadError = toSignal(this.itemsService.loadError$, { initialValue: null });
+  private readonly warehousesLoadError = toSignal(this.warehousesService.loadError$, {
+    initialValue: null,
+  });
+  private readonly balancesLoadError = toSignal(this.balancesService.loadError$, {
+    initialValue: null,
+  });
+  private readonly receiptsLoadError = toSignal(this.receiptsService.loadError$, {
+    initialValue: null,
+  });
+  private readonly issuesLoadError = toSignal(this.issuesService.loadError$, {
+    initialValue: null,
+  });
+  private readonly transfersLoadError = toSignal(this.transfersService.loadError$, {
+    initialValue: null,
+  });
+  private readonly summaryLoadError = toSignal(this.summaryService.loadError$, {
+    initialValue: null,
+  });
+
+  protected readonly loading = computed(
+    () =>
+      this.itemsLoading() ||
+      this.warehousesLoading() ||
+      this.balancesLoading() ||
+      this.receiptsLoading() ||
+      this.issuesLoading() ||
+      this.transfersLoading() ||
+      this.summaryLoading(),
+  );
+  protected readonly loadError = computed(
+    () =>
+      this.itemsLoadError() !== null ||
+      this.warehousesLoadError() !== null ||
+      this.balancesLoadError() !== null ||
+      this.receiptsLoadError() !== null ||
+      this.issuesLoadError() !== null ||
+      this.transfersLoadError() !== null ||
+      this.summaryLoadError() !== null,
+  );
 
   private readonly itemMap = computed(
     () => new Map<number, InventoryItem>(this.items().map((item) => [item.id, item])),
@@ -100,57 +168,73 @@ export class Dashboard {
   );
 
   private readonly itemTotals = computed(() => {
-    const totals = new Map<number, { availableStock: number; minStockLevel: number }>();
+    const totals = new Map<number, number>();
     for (const balance of this.balances()) {
-      const current = totals.get(balance.itemId) ?? {
-        availableStock: 0,
-        minStockLevel: balance.minStockLevel,
-      };
-      current.availableStock += balance.availableStock;
-      totals.set(balance.itemId, current);
+      totals.set(balance.itemId, (totals.get(balance.itemId) ?? 0) + balance.availableQuantity);
     }
     return [...totals.values()];
   });
 
-  protected readonly stats = computed(() => [
-    {
-      label: 'Total Items',
-      value: this.items().length,
-      detail: 'Items in the catalog',
-      icon: 'IT',
-      tone: 'green',
-    },
-    {
-      label: 'Total Warehouses',
-      value: this.warehouses().length,
-      detail: 'All warehouse locations',
-      icon: 'WH',
-      tone: 'blue',
-    },
-    {
-      label: 'Total Available Stock',
-      value: this.balances().reduce((total, balance) => total + balance.availableStock, 0),
-      detail: 'Across all warehouses',
-      icon: 'QTY',
-      tone: 'purple',
-    },
-    {
-      label: 'Low Stock Items',
-      value: this.itemTotals().filter(
-        (item) => item.availableStock > 0 && item.availableStock <= item.minStockLevel,
-      ).length,
-      detail: 'Below minimum overall',
-      icon: 'LOW',
-      tone: 'orange',
-    },
-    {
-      label: 'Out of Stock Items',
-      value: this.itemTotals().filter((item) => item.availableStock <= 0).length,
-      detail: 'No stock across warehouses',
-      icon: 'OUT',
-      tone: 'red',
-    },
-  ]);
+  private readonly balanceRows = computed(() => {
+    const itemsById = this.itemMap();
+    return this.balances().map((balance): DashboardBalance => {
+      const item = itemsById.get(balance.itemId);
+      return {
+        ...balance,
+        itemUnit: item?.unit ?? '',
+        status:
+          balance.availableQuantity <= 0
+            ? 'Out of Stock'
+            : balance.lowStock
+              ? 'Low Stock'
+              : 'In Stock',
+      };
+    });
+  });
+
+  protected readonly stats = computed(() => {
+    const summary = this.summaryLoadError() ? null : this.summary();
+    return [
+      {
+        label: 'Total Items',
+        value: summary?.totalItems ?? null,
+        detail: 'Items in the backend catalog',
+        icon: 'IT',
+        tone: 'green',
+      },
+      {
+        label: 'Total Warehouses',
+        value: summary?.totalWarehouses ?? null,
+        detail: 'Warehouse locations',
+        icon: 'WH',
+        tone: 'blue',
+      },
+      {
+        label: 'Total Available Stock',
+        value: summary?.totalStockQuantity ?? null,
+        detail: 'Backend-calculated quantity',
+        icon: 'QTY',
+        tone: 'purple',
+      },
+      {
+        label: 'Low Stock Items',
+        value: summary?.lowStockItems ?? null,
+        detail: 'Backend low-stock count',
+        icon: 'LOW',
+        tone: 'orange',
+      },
+      {
+        label: 'Out of Stock Items',
+        value:
+          this.balancesLoading() || this.balancesLoadError()
+            ? null
+            : this.itemTotals().filter((available) => available <= 0).length,
+        detail: 'Derived from backend balance rows',
+        icon: 'OUT',
+        tone: 'red',
+      },
+    ];
+  });
 
   protected readonly movementChart = computed(() => this.createMovementChart());
 
@@ -216,34 +300,60 @@ export class Dashboard {
   });
 
   protected readonly warehouseSummaries = computed(() => {
-    const balances = this.balances();
+    const balances = this.balanceRows();
 
-    return this.warehouses().map((warehouse): WarehouseSummary => {
+    return this.warehouses()
+      .filter((warehouse) => warehouse.status === 'Active')
+      .map((warehouse): WarehouseSummary => {
       const warehouseBalances = balances.filter((balance) => balance.warehouseId === warehouse.id);
       return {
         warehouse,
         availableStock: warehouseBalances.reduce(
-          (total, balance) => total + balance.availableStock,
+          (total, balance) => total + balance.availableQuantity,
           0,
         ),
-        lowStockCount: warehouseBalances.filter((balance) => balance.status === 'Low Stock').length,
-        outOfStockCount: warehouseBalances.filter((balance) => balance.status === 'Out of Stock')
+        lowStockCount: warehouseBalances.filter((balance) => balance.lowStock).length,
+        outOfStockCount: warehouseBalances.filter((balance) => balance.availableQuantity <= 0)
           .length,
       };
-    });
+      });
   });
 
   protected readonly stockAlerts = computed(() =>
-    this.balances()
-      .filter((balance) => balance.status !== 'In Stock')
+    this.balanceRows()
+      .filter((balance) => balance.lowStock)
       .sort((left, right) => {
         if (left.status !== right.status) {
           return left.status === 'Out of Stock' ? -1 : 1;
         }
-        return left.availableStock - right.availableStock;
+        return left.availableQuantity - right.availableQuantity;
       })
       .slice(0, 6),
   );
+
+  ngOnInit(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    if (!this.itemsLoading()) this.itemsService.reloadItems();
+    if (!this.warehousesLoading()) this.warehousesService.reloadWarehouses();
+    if (!this.receiptsLoading()) this.receiptsService.reloadReceipts();
+    if (!this.issuesLoading()) this.issuesService.reloadIssues();
+    if (!this.transfersLoading()) this.transfersService.reloadTransfers();
+    if (!this.summaryLoading()) this.summaryService.reloadSummary();
+    this.balancesService.reloadBalances();
+  }
+
+  protected refreshDashboard(): void {
+    this.itemsService.reloadItems();
+    this.warehousesService.reloadWarehouses();
+    this.receiptsService.reloadReceipts();
+    this.issuesService.reloadIssues();
+    this.transfersService.reloadTransfers();
+    this.summaryService.reloadSummary();
+    this.balancesService.reloadBalances();
+  }
 
   protected stockStatusClass(status: StockBalanceStatus): string {
     switch (status) {
@@ -287,7 +397,7 @@ export class Dashboard {
     );
     const transferCounts = this.countByDate(
       this.transfers()
-        .filter((transfer) => transfer.status !== 'Cancelled')
+        .filter((transfer) => transfer.status === 'Completed')
         .map((transfer) => transfer.transferDate),
       dateKeys,
     );
@@ -329,7 +439,7 @@ export class Dashboard {
       issueTotal,
       transferTotal,
       totalRecords: receiptTotal + issueTotal + transferTotal,
-      ariaLabel: `Movement records from ${firstDate} to ${lastDate}: ${receiptTotal} receipts, ${issueTotal} issues, and ${transferTotal} transfers`,
+      ariaLabel: `Completed movement records from ${firstDate} to ${lastDate}: ${receiptTotal} receipts, ${issueTotal} issues, and ${transferTotal} completed transfers`,
     };
   }
 

@@ -22,6 +22,23 @@
     </div>
   }
 
+  @if (loading()) {
+    <div class="alert alert-info py-2" role="status">Loading items from the server...</div>
+  }
+
+  @if (loadError()) {
+    <div class="alert alert-danger d-flex align-items-center gap-3" role="alert">
+      <span>{{ loadError() }}</span>
+      <button class="btn btn-sm btn-outline-danger ms-auto" type="button" (click)="retryLoadItems()">
+        Retry
+      </button>
+    </div>
+  }
+
+  @if (editError()) {
+    <div class="alert alert-danger" role="alert">{{ editError() }}</div>
+  }
+
   <div class="row g-3 item-summary">
     <div class="col-12 col-sm-4">
       <article class="summary-card card h-100">
@@ -167,10 +184,11 @@
                   <button
                     class="btn btn-sm action-button edit-button"
                     type="button"
+                    [disabled]="loadingItemId() !== null"
                     [attr.aria-label]="'Edit ' + item.name"
                     (click)="openEditForm(item)"
                   >
-                    Edit
+                    {{ loadingItemId() === item.id ? 'Loading...' : 'Edit' }}
                   </button>
                   <button
                     class="btn btn-sm action-button delete-button"
@@ -188,7 +206,16 @@
               <td class="empty-cell" colspan="7">
                 <div class="empty-state">
                   <span class="empty-symbol" aria-hidden="true">IT</span>
-                  @if (items().length === 0) {
+                  @if (loading()) {
+                    <h3>Loading items</h3>
+                    <p>The item catalog is being fetched from the server.</p>
+                  } @else if (loadError()) {
+                    <h3>Catalog unavailable</h3>
+                    <p>Retry the request to load the item catalog.</p>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" (click)="retryLoadItems()">
+                      Retry
+                    </button>
+                  } @else if (items().length === 0) {
                     <h3>No items yet</h3>
                     <p>Add your first item to start building your inventory catalog.</p>
                     <button class="btn btn-primary btn-sm" type="button" (click)="openAddForm()">
@@ -353,7 +380,11 @@
             Cancel
           </button>
           <button class="btn btn-primary" type="submit">
-            {{ itemToEdit() ? 'Save changes' : 'Add item' }}
+            @if (saving()) {
+              Saving...
+            } @else {
+              {{ itemToEdit() ? 'Save changes' : 'Add item' }}
+            }
           </button>
         </div>
       </form>
@@ -374,14 +405,21 @@
       <span class="delete-warning-icon" aria-hidden="true">!</span>
       <h2 id="delete-dialog-title">Delete this item?</h2>
       <p id="delete-dialog-description">
-        <strong>{{ item.name }}</strong> will be removed from this catalog. This action cannot be
-        undone.
+        <strong>{{ item.name }}</strong> will be marked inactive. Its stock movement history will
+        be preserved.
       </p>
       <div class="dialog-actions">
         <button class="btn btn-outline-secondary" type="button" (click)="cancelDelete()">
           Cancel
         </button>
-        <button class="btn btn-danger" type="button" (click)="confirmDelete()">Delete item</button>
+        <button
+        class="btn btn-danger"
+        type="button"
+        [disabled]="deleting()"
+        (click)="confirmDelete()"
+        >
+        {{ deleting() ? 'Deactivating...' : 'Deactivate item' }}
+        </button>
       </div>
     </section>
   </div>

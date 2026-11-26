@@ -1,5 +1,6 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { DatePipe, DecimalPipe, isPlatformBrowser } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, OnInit, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
   AbstractControl,
@@ -9,19 +10,15 @@ import {
   ValidatorFn,
   Validators,
 } from '@angular/forms';
+
+import { sortRows, TableSortState } from '../../core/ui/table-sort';
+import { InventoryBalancesApiService } from '../stock-balances/inventory-balances-api.service';
 import { InventoryItem } from '../items/item.model';
 import { ItemsService } from '../items/items.service';
 import { Warehouse } from '../warehouses/warehouse.model';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { NewStockTransfer, StockTransfer, StockTransferStatus } from './stock-transfer.model';
-import {
-  DuplicateTransferNumberError,
-  InsufficientStockError,
-  InvalidStockMovementQuantityError,
-  SameWarehouseTransferError,
-  StockTransfersService,
-} from './stock-transfers.service';
-import { sortRows, TableSortState } from '../../core/ui/table-sort';
+import { DuplicateTransferNumberError, StockTransfersService } from './stock-transfers.service';
 
 type TransferFormField =
   | 'transferNumber'
@@ -30,8 +27,6 @@ type TransferFormField =
   | 'sourceWarehouseId'
   | 'destinationWarehouseId'
   | 'quantity'
-  | 'referenceNumber'
-  | 'notes'
   | 'status';
 
 interface TransferRow extends StockTransfer {
@@ -66,29 +61,51 @@ const differentWarehousesValidator: ValidatorFn = (
     : null;
 };
 
+function integerQuantity(control: AbstractControl<number>): ValidationErrors | null {
+  return Number.isInteger(control.value) ? null : { integer: true };
+}
+
 @Component({
   selector: 'app-stock-transfers',
   imports: [DatePipe, DecimalPipe, ReactiveFormsModule],
   templateUrl: './stock-transfers.html',
   styleUrl: './stock-transfers.css',
 })
-export class StockTransfers {
+export class StockTransfers implements OnInit {
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly formBuilder = inject(FormBuilder).nonNullable;
   private readonly transfersService = inject(StockTransfersService);
   private readonly itemsService = inject(ItemsService);
   private readonly warehousesService = inject(WarehousesService);
+  private readonly inventoryBalancesService = inject(InventoryBalancesApiService);
 
   protected readonly items = toSignal(this.itemsService.items$, { initialValue: [] });
   protected readonly warehouses = toSignal(this.warehousesService.warehouses$, {
     initialValue: [],
   });
   protected readonly transfers = toSignal(this.transfersService.transfers$, { initialValue: [] });
-  protected readonly statuses: readonly StockTransferStatus[] = [
-    'Pending',
-    'In Transit',
-    'Completed',
-    'Cancelled',
-  ];
+  protected readonly transfersLoading = toSignal(this.transfersService.loading$, {
+    initialValue: false,
+  });
+  protected readonly transfersLoadError = toSignal(this.transfersService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly itemsLoading = toSignal(this.itemsService.loading$, { initialValue: false });
+  protected readonly itemsLoadError = toSignal(this.itemsService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly warehousesLoading = toSignal(this.warehousesService.loading$, {
+    initialValue: false,
+  });
+  protected readonly warehousesLoadError = toSignal(this.warehousesService.loadError$, {
+    initialValue: null,
+  });
+  protected readonly activeItems = computed(() =>
+    this.items().filter((item) => item.status === 'Active'),
+  );
+  protected readonly activeWarehouses = computed(() =>
+    this.warehouses().filter((warehouse) => warehouse.status === 'Active'),
+  );
   protected readonly searchTerm = signal('');
   protected readonly selectedSourceWarehouseId = signal('all');
   protected readonly selectedDestinationWarehouseId = signal('all');
@@ -101,6 +118,15 @@ export class StockTransfers {
   protected readonly transferToDelete = signal<StockTransfer | null>(null);
   protected readonly notice = signal('');
   protected readonly saveError = signal('');
+  protected readonly deleteError = signal('');
+  protected readonly saving = signal(false);
+  protected readonly deleting = signal(false);
+  protected readonly loadingTransferId = signal<number | null>(null);
+  protected readonly statuses: readonly StockTransferStatus[] = [
+    'Pending',
+    'Completed',
+    'Cancelled',
+  ];
   protected readonly sorting = new TableSortState<TransferSortColumn>('transferDate', 'desc', [
     'transferDate',
   ]);
@@ -118,13 +144,24 @@ export class StockTransfers {
       destinationWarehouseId: [0, [Validators.required, Validators.min(1)]],
       quantity: [
         0,
-        [Validators.required, Validators.min(Number.MIN_VALUE), Validators.max(999999999)],
+        [Validators.required, Validators.min(1), Validators.max(2147483647), integerQuantity],
       ],
-      referenceNumber: ['', Validators.maxLength(60)],
-      notes: ['', Validators.maxLength(500)],
       status: ['Pending' as StockTransferStatus, Validators.required],
     },
     { validators: differentWarehousesValidator },
+  );
+
+  ngOnInit(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      this.inventoryBalancesService.reloadBalances();
+    }
+  }
+
+  protected readonly selectedStatusForForm = toSignal(this.form.controls.status.valueChanges, {
+    initialValue: this.form.controls.status.value,
+  });
+  protected readonly isCancelling = computed(
+    () => this.transferToEdit() !== null && this.selectedStatusForForm() === 'Cancelled',
   );
 
   protected readonly transferRows = computed(() => {
@@ -211,6 +248,19 @@ export class StockTransfers {
     );
   }
 
+  protected statusesForForm(): readonly StockTransferStatus[] {
+    const existing = this.transferToEdit();
+    if (!existing) {
+      return ['Pending', 'Completed'];
+    }
+    if (existing.status === 'Cancelled') {
+      return [];
+    }
+    return existing.status === 'Completed'
+      ? ['Completed', 'Cancelled']
+      : ['Pending', 'Completed', 'Cancelled'];
+  }
+
   protected setSearch(event: Event): void {
     this.searchTerm.set((event.target as HTMLInputElement).value);
   }
@@ -245,35 +295,82 @@ export class StockTransfers {
   }
 
   protected openAddForm(): void {
+    this.form.enable({ emitEvent: false });
     this.transferToEdit.set(null);
     this.form.reset({
       transferNumber: this.transfersService.suggestTransferNumber(),
-      transferDate: new Date().toISOString().slice(0, 10),
+      transferDate: this.today(),
       itemId: 0,
       sourceWarehouseId: 0,
       destinationWarehouseId: 0,
       quantity: 0,
-      referenceNumber: '',
-      notes: '',
       status: 'Pending',
     });
     this.openForm();
   }
 
   protected openEditForm(transfer: StockTransfer): void {
-    this.transferToEdit.set(transfer);
-    this.form.reset({
-      transferNumber: transfer.transferNumber,
-      transferDate: transfer.transferDate,
-      itemId: transfer.itemId,
-      sourceWarehouseId: transfer.sourceWarehouseId,
-      destinationWarehouseId: transfer.destinationWarehouseId,
-      quantity: transfer.quantity,
-      referenceNumber: transfer.referenceNumber,
-      notes: transfer.notes,
-      status: transfer.status,
+    if (transfer.status === 'Cancelled' || this.loadingTransferId() !== null) {
+      return;
+    }
+
+    this.loadingTransferId.set(transfer.id);
+    this.transfersService.getTransfer(transfer.id).subscribe({
+      next: (loadedTransfer) => {
+        this.form.enable({ emitEvent: false });
+        this.transferToEdit.set(loadedTransfer);
+        this.form.reset({
+          transferNumber: loadedTransfer.transferNumber,
+          transferDate: loadedTransfer.transferDate,
+          itemId: loadedTransfer.itemId,
+          sourceWarehouseId: loadedTransfer.sourceWarehouseId,
+          destinationWarehouseId: loadedTransfer.destinationWarehouseId,
+          quantity: loadedTransfer.quantity,
+          status: loadedTransfer.status,
+        });
+        this.openForm();
+        this.loadingTransferId.set(null);
+      },
+      error: (error: unknown) => {
+        this.notice.set(this.errorMessage(error, 'load'));
+        this.loadingTransferId.set(null);
+      },
     });
-    this.openForm();
+  }
+
+  protected onStatusChange(): void {
+    const details = [
+      this.form.controls.transferNumber,
+      this.form.controls.transferDate,
+      this.form.controls.itemId,
+      this.form.controls.sourceWarehouseId,
+      this.form.controls.destinationWarehouseId,
+      this.form.controls.quantity,
+    ];
+
+    if (this.isCancelling()) {
+      const original = this.transferToEdit();
+      if (original) {
+        this.form.patchValue(
+          {
+            transferNumber: original.transferNumber,
+            transferDate: original.transferDate,
+            itemId: original.itemId,
+            sourceWarehouseId: original.sourceWarehouseId,
+            destinationWarehouseId: original.destinationWarehouseId,
+            quantity: original.quantity,
+          },
+          { emitEvent: false },
+        );
+      }
+      for (const control of details) {
+        control.disable({ emitEvent: false });
+      }
+    } else {
+      for (const control of details) {
+        control.enable({ emitEvent: false });
+      }
+    }
   }
 
   protected closeForm(): void {
@@ -307,16 +404,12 @@ export class StockTransfers {
         return 'Select a destination warehouse.';
       }
       if (field === 'quantity') {
-        return 'Enter a quantity greater than zero.';
+        return 'Enter a positive whole-number quantity.';
       }
       return 'This field is required.';
     }
     if (control.hasError('maxlength')) {
-      return field === 'transferNumber'
-        ? 'Transfer number must be 30 characters or fewer.'
-        : field === 'referenceNumber'
-          ? 'Reference number must be 60 characters or fewer.'
-          : 'Notes must be 500 characters or fewer.';
+      return 'Transfer number must be 30 characters or fewer.';
     }
     if (control.hasError('pattern')) {
       return 'Transfer number must use the generated TRF-#### format.';
@@ -332,7 +425,10 @@ export class StockTransfers {
           : 'Select a destination warehouse.';
     }
     if (control.hasError('max')) {
-      return 'Quantity must be 999,999,999 or less.';
+      return 'Quantity must be 2,147,483,647 or less.';
+    }
+    if (control.hasError('integer')) {
+      return 'Quantity must be a whole number.';
     }
     if (field === 'destinationWarehouseId' && this.form.hasError('sameWarehouse')) {
       return 'Source and destination warehouses must be different.';
@@ -351,71 +447,66 @@ export class StockTransfers {
     this.saveError.set('');
     this.form.markAllAsTouched();
 
-    if (this.form.invalid) {
+    if (this.form.invalid || this.saving()) {
       return;
     }
 
     const values = this.form.getRawValue();
-    const selectedItem = this.items().find((item) => item.id === values.itemId);
-    const sourceWarehouse = this.warehouses().find(
-      (warehouse) => warehouse.id === values.sourceWarehouseId,
-    );
-    const destinationWarehouse = this.warehouses().find(
-      (warehouse) => warehouse.id === values.destinationWarehouseId,
-    );
+    const existingTransfer = this.transferToEdit();
+    const isCancellation = values.status === 'Cancelled' && existingTransfer !== null;
 
-    if (!selectedItem) {
+    if (!isCancellation && !this.activeItems().some((item) => item.id === values.itemId)) {
       this.form.controls.itemId.setErrors({ unavailable: true });
       return;
     }
-    if (!sourceWarehouse) {
+    if (
+      !isCancellation &&
+      !this.activeWarehouses().some((warehouse) => warehouse.id === values.sourceWarehouseId)
+    ) {
       this.form.controls.sourceWarehouseId.setErrors({ unavailable: true });
       return;
     }
-    if (!destinationWarehouse) {
+    if (
+      !isCancellation &&
+      !this.activeWarehouses().some((warehouse) => warehouse.id === values.destinationWarehouseId)
+    ) {
       this.form.controls.destinationWarehouseId.setErrors({ unavailable: true });
       return;
     }
 
     const transferData: NewStockTransfer = {
+      transferNumber: values.transferNumber.trim(),
       transferDate: values.transferDate,
       itemId: values.itemId,
       sourceWarehouseId: values.sourceWarehouseId,
       destinationWarehouseId: values.destinationWarehouseId,
       quantity: values.quantity,
-      referenceNumber: values.referenceNumber.trim(),
-      notes: values.notes.trim(),
       status: values.status,
     };
+    this.saving.set(true);
 
-    try {
-      const existingTransfer = this.transferToEdit();
-      if (existingTransfer) {
-        const updatedTransfer = this.transfersService.updateTransfer({
-          ...transferData,
-          id: existingTransfer.id,
-          transferNumber: existingTransfer.transferNumber,
-        });
-        this.notice.set(`${updatedTransfer.transferNumber} was updated.`);
-      } else {
-        const newTransfer = this.transfersService.addTransfer(transferData);
-        this.notice.set(`${newTransfer.transferNumber} was recorded.`);
-      }
+    const request = existingTransfer
+      ? this.transfersService.updateTransfer({ ...transferData, id: existingTransfer.id })
+      : this.transfersService.addTransfer(transferData);
 
-      this.closeForm();
-    } catch (error) {
-      if (
-        error instanceof InsufficientStockError ||
-        error instanceof InvalidStockMovementQuantityError ||
-        error instanceof SameWarehouseTransferError ||
-        error instanceof DuplicateTransferNumberError
-      ) {
-        this.saveError.set(error.message);
-        return;
-      }
-
-      throw error;
-    }
+    request.subscribe({
+      next: (savedTransfer) => {
+        this.saving.set(false);
+        this.closeForm();
+        this.notice.set(
+          isCancellation
+            ? `${savedTransfer.transferNumber} was cancelled.`
+            : existingTransfer
+              ? `${savedTransfer.transferNumber} was updated.`
+              : `${savedTransfer.transferNumber} was recorded.`,
+        );
+        this.refreshAfterMovement();
+      },
+      error: (error: unknown) => {
+        this.saving.set(false);
+        this.saveError.set(this.errorMessage(error, 'save'));
+      },
+    });
   }
 
   protected viewTransfer(transfer: TransferRow): void {
@@ -427,26 +518,57 @@ export class StockTransfers {
   }
 
   protected requestDelete(transfer: StockTransfer): void {
+    this.deleteError.set('');
     this.transferToDelete.set(transfer);
   }
 
   protected cancelDelete(): void {
-    this.transferToDelete.set(null);
+    if (!this.deleting()) {
+      this.transferToDelete.set(null);
+      this.deleteError.set('');
+    }
   }
 
   protected confirmDelete(): void {
     const transfer = this.transferToDelete();
-    if (!transfer) {
+    if (!transfer || this.deleting()) {
       return;
     }
 
-    this.transfersService.deleteTransfer(transfer.id);
-    this.notice.set(`${transfer.transferNumber} was deleted.`);
-    this.cancelDelete();
+    this.deleting.set(true);
+    this.deleteError.set('');
+    this.transfersService.deleteTransfer(transfer.id).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.transferToDelete.set(null);
+        this.notice.set(
+          transfer.status === 'Completed'
+            ? `${transfer.transferNumber} was deleted and its stock movement was reversed.`
+            : `${transfer.transferNumber} was deleted.`,
+        );
+        this.refreshAfterMovement();
+      },
+      error: (error: unknown) => {
+        this.deleting.set(false);
+        this.deleteError.set(this.errorMessage(error, 'delete'));
+      },
+    });
   }
 
   protected dismissNotice(): void {
     this.notice.set('');
+  }
+
+  protected retryData(): void {
+    this.transfersService.reloadTransfers();
+    this.itemsService.reloadItems();
+    this.warehousesService.reloadWarehouses();
+  }
+
+  protected isSameWarehouseOption(warehouseId: number, field: 'source' | 'destination'): boolean {
+    return field === 'source'
+      ? warehouseId === this.form.controls.destinationWarehouseId.value
+      : warehouseId === this.form.controls.sourceWarehouseId.value;
   }
 
   private openForm(): void {
@@ -454,5 +576,64 @@ export class StockTransfers {
     this.saveError.set('');
     this.notice.set('');
     this.formOpen.set(true);
+  }
+
+  private refreshAfterMovement(): void {
+    this.transfersService.reloadTransfers();
+    this.inventoryBalancesService.reloadBalances();
+  }
+
+  private today(): string {
+    const date = new Date();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  }
+
+  private errorMessage(error: unknown, operation: 'load' | 'save' | 'delete'): string {
+    if (error instanceof DuplicateTransferNumberError) {
+      return error.message;
+    }
+    if (!(error instanceof HttpErrorResponse)) {
+      return error instanceof Error ? error.message : 'An unexpected error occurred.';
+    }
+
+    const backendMessage = this.backendMessage(error);
+    if (error.status === 0) {
+      return 'Could not reach the server. Check your connection and try again.';
+    }
+    if (error.status === 400) {
+      return backendMessage ?? 'The request was invalid. Check the transfer details and try again.';
+    }
+    if (error.status === 404) {
+      return operation === 'load'
+        ? 'This transfer no longer exists. Refresh the list and try again.'
+        : 'The transfer, item, or warehouse could not be found. Refresh and try again.';
+    }
+    if (error.status === 409) {
+      return backendMessage ?? 'The transfer conflicts with current stock or status.';
+    }
+    if (error.status >= 500) {
+      return backendMessage
+        ? `The server could not ${operation} the transfer: ${backendMessage}`
+        : 'The server could not complete the request. Try again later.';
+    }
+    return backendMessage ?? `Unable to ${operation} the stock transfer (HTTP ${error.status}).`;
+  }
+
+  private backendMessage(error: HttpErrorResponse): string | null {
+    if (typeof error.error === 'string' && error.error.trim()) {
+      return error.error.trim();
+    }
+    if (typeof error.error !== 'object' || error.error === null) {
+      return null;
+    }
+    for (const key of ['message', 'detail', 'error']) {
+      const value: unknown = error.error[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return null;
   }
 }

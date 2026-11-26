@@ -5,9 +5,7 @@ export interface Warehouse {
   name: string;
   code: string;
   location: string;
-  managerName: string;
-  contactNumber: string;
   status: WarehouseStatus;
 }
 
-export type NewWarehouse = Omit<Warehouse, 'id'>;
+export type NewWarehouse = Omit<Warehouse, 'id' | 'status'>;

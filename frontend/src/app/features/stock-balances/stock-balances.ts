@@ -1,35 +1,37 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { DecimalPipe, isPlatformBrowser } from '@angular/common';
+import { Component, OnInit, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+
+import { sortRows, TableSortState } from '../../core/ui/table-sort';
 import { InventoryItem } from '../items/item.model';
 import { ItemsService } from '../items/items.service';
-import { StockTransfer } from '../stock-transfers/stock-transfer.model';
 import { WarehousesService } from '../warehouses/warehouses.service';
 import { StockBalance, StockBalanceStatus } from './stock-balance.model';
 import { StockBalancesService } from './stock-balances.service';
-import { sortRows, TableSortState } from '../../core/ui/table-sort';
+
+interface BalanceRow extends StockBalance {
+  category: string;
+  itemUnit: string;
+  status: StockBalanceStatus;
+}
 
 type BalanceSortColumn =
   | 'itemName'
-  | 'sku'
+  | 'itemCode'
   | 'category'
   | 'warehouseName'
-  | 'openingStock'
-  | 'totalStockReceived'
-  | 'totalStockIssued'
-  | 'totalTransfersIn'
-  | 'totalTransfersOut'
-  | 'availableStock'
-  | 'minStockLevel'
+  | 'availableQuantity'
+  | 'reorderLevel'
   | 'status';
 
 @Component({
   selector: 'app-stock-balances',
-  imports: [DatePipe, DecimalPipe],
+  imports: [DecimalPipe],
   templateUrl: './stock-balances.html',
   styleUrl: './stock-balances.css',
 })
-export class StockBalances {
+export class StockBalances implements OnInit {
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly balancesService = inject(StockBalancesService);
   private readonly itemsService = inject(ItemsService);
   private readonly warehousesService = inject(WarehousesService);
@@ -39,6 +41,12 @@ export class StockBalances {
     initialValue: [],
   });
   protected readonly balances = toSignal(this.balancesService.balances$, { initialValue: [] });
+  protected readonly loading = toSignal(this.balancesService.loading$, { initialValue: false });
+  protected readonly loadError = toSignal(this.balancesService.loadError$, { initialValue: null });
+  private readonly itemsLoading = toSignal(this.itemsService.loading$, { initialValue: false });
+  private readonly warehousesLoading = toSignal(this.warehousesService.loading$, {
+    initialValue: false,
+  });
   protected readonly statuses: readonly StockBalanceStatus[] = [
     'In Stock',
     'Low Stock',
@@ -51,8 +59,26 @@ export class StockBalances {
   protected readonly selectedWarehouseId = signal('all');
   protected readonly selectedCategory = signal('all');
   protected readonly selectedStatus = signal('all');
-  protected readonly selectedBalance = signal<StockBalance | null>(null);
+  protected readonly selectedBalance = signal<BalanceRow | null>(null);
   protected readonly sorting = new TableSortState<BalanceSortColumn>('itemName');
+
+  protected readonly balanceRows = computed(() => {
+    const itemsById = new Map<number, InventoryItem>(this.items().map((item) => [item.id, item]));
+    return this.balances().map((balance): BalanceRow => {
+      const item = itemsById.get(balance.itemId);
+      return {
+        ...balance,
+        category: item?.category ?? '',
+        itemUnit: item?.unit ?? '',
+        status:
+          balance.availableQuantity <= 0
+            ? 'Out of Stock'
+            : balance.lowStock
+              ? 'Low Stock'
+              : 'In Stock',
+      };
+    });
+  });
 
   protected readonly filteredBalances = computed(() => {
     const query = this.searchTerm().trim().toLocaleLowerCase();
@@ -60,11 +86,11 @@ export class StockBalances {
     const category = this.selectedCategory();
     const status = this.selectedStatus();
 
-    const filteredBalances = this.balances().filter((balance) => {
+    const filteredBalances = this.balanceRows().filter((balance) => {
       const matchesSearch =
         query.length === 0 ||
         balance.itemName.toLocaleLowerCase().includes(query) ||
-        balance.sku.toLocaleLowerCase().includes(query);
+        balance.itemCode.toLocaleLowerCase().includes(query);
       const matchesWarehouse = warehouseId === 'all' || String(balance.warehouseId) === warehouseId;
       const matchesCategory = category === 'all' || balance.category === category;
       const matchesStatus = status === 'all' || balance.status === status;
@@ -79,33 +105,42 @@ export class StockBalances {
     );
   });
 
-  protected readonly filteredItemTotals = computed(() => {
-    const totalsByItem = new Map<number, { availableStock: number; minStockLevel: number }>();
-
+  private readonly filteredItemTotals = computed(() => {
+    const totalsByItem = new Map<number, { available: number; lowStock: boolean }>();
     for (const balance of this.filteredBalances()) {
       const current = totalsByItem.get(balance.itemId) ?? {
-        availableStock: 0,
-        minStockLevel: balance.minStockLevel,
+        available: 0,
+        lowStock: false,
       };
-      current.availableStock += balance.availableStock;
+      current.available += balance.availableQuantity;
+      current.lowStock ||= balance.lowStock;
       totalsByItem.set(balance.itemId, current);
     }
-
     return [...totalsByItem.values()];
   });
+
   protected readonly totalItems = computed(() => this.filteredItemTotals().length);
   protected readonly totalAvailableUnits = computed(() =>
-    this.filteredBalances().reduce((total, balance) => total + balance.availableStock, 0),
+    this.filteredBalances().reduce((total, balance) => total + balance.availableQuantity, 0),
   );
   protected readonly lowStockItems = computed(
-    () =>
-      this.filteredItemTotals().filter(
-        (item) => item.availableStock > 0 && item.availableStock <= item.minStockLevel,
-      ).length,
+    () => this.filteredItemTotals().filter((item) => item.available > 0 && item.lowStock).length,
   );
   protected readonly outOfStockItems = computed(
-    () => this.filteredItemTotals().filter((item) => item.availableStock <= 0).length,
+    () => this.filteredItemTotals().filter((item) => item.available <= 0).length,
   );
+
+  ngOnInit(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      this.balancesService.reloadBalances();
+      if (!this.itemsLoading()) {
+        this.itemsService.reloadItems();
+      }
+      if (!this.warehousesLoading()) {
+        this.warehousesService.reloadWarehouses();
+      }
+    }
+  }
 
   protected hasActiveFilters(): boolean {
     return (
@@ -121,7 +156,9 @@ export class StockBalances {
   }
 
   protected setWarehouse(event: Event): void {
-    this.selectedWarehouseId.set((event.target as HTMLSelectElement).value);
+    const warehouseId = (event.target as HTMLSelectElement).value;
+    this.selectedWarehouseId.set(warehouseId);
+    this.balancesService.reloadBalances(warehouseId === 'all' ? undefined : Number(warehouseId));
   }
 
   protected setCategory(event: Event): void {
@@ -133,31 +170,29 @@ export class StockBalances {
   }
 
   protected clearFilters(): void {
+    const warehouseFilterChanged = this.selectedWarehouseId() !== 'all';
     this.searchTerm.set('');
     this.selectedWarehouseId.set('all');
     this.selectedCategory.set('all');
     this.selectedStatus.set('all');
+    if (warehouseFilterChanged) {
+      this.balancesService.reloadBalances();
+    }
   }
 
-  protected viewDetails(balance: StockBalance): void {
+  protected retryLoad(): void {
+    this.balancesService.reloadBalances(
+      this.selectedWarehouseId() === 'all' ? undefined : Number(this.selectedWarehouseId()),
+    );
+    this.itemsService.reloadItems();
+    this.warehousesService.reloadWarehouses();
+  }
+
+  protected viewDetails(balance: BalanceRow): void {
     this.selectedBalance.set(balance);
   }
 
   protected closeDetails(): void {
     this.selectedBalance.set(null);
-  }
-
-  protected transferDirection(transfer: StockTransfer, balance: StockBalance): string {
-    if (transfer.sourceWarehouseId === balance.warehouseId) {
-      const destination = this.warehouses().find(
-        (warehouse) => warehouse.id === transfer.destinationWarehouseId,
-      );
-      return `To ${destination?.name ?? `warehouse #${transfer.destinationWarehouseId}`}`;
-    }
-
-    const source = this.warehouses().find(
-      (warehouse) => warehouse.id === transfer.sourceWarehouseId,
-    );
-    return `From ${source?.name ?? `warehouse #${transfer.sourceWarehouseId}`}`;
   }
 }
