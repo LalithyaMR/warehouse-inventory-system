@@ -12,7 +12,6 @@ import warehouse_inventory.service.StockIssueService;
 
 @RestController
 @RequestMapping("/api/stock-issues")
-@CrossOrigin(origins = "http://localhost:4200")
 public class StockIssueController {
 
     private final StockIssueService service;
