@@ -9,7 +9,6 @@ import warehouse_inventory.service.InventoryBalanceService;
 
 @RestController
 @RequestMapping("/api/inventory")
-@CrossOrigin(origins = "http://localhost:4200")
 public class InventoryController {
 
     private final InventoryBalanceService service;
