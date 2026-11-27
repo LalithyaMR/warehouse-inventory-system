@@ -17,8 +17,10 @@ public class CorsConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOrigins(
                         "http://localhost:4200",
+                        "https://warehouse-inventory-system-wheat.vercel.app",
                         frontendUrl
                 )
+
                 .allowedMethods(
                         "GET", "POST", "PUT",
                         "DELETE", "OPTIONS"
