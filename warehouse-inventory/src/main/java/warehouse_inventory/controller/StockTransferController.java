@@ -12,7 +12,6 @@ import warehouse_inventory.service.StockTransferService;
 
 @RestController
 @RequestMapping("/api/stock-transfers")
-@CrossOrigin(origins = "http://localhost:4200")
 public class StockTransferController {
 
     private final StockTransferService service;
