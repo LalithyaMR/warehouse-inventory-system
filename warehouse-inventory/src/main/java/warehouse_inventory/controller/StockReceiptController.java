@@ -12,7 +12,6 @@ import warehouse_inventory.service.StockReceiptService;
 
 @RestController
 @RequestMapping("/api/stock-receipts")
-@CrossOrigin(origins = "http://localhost:4200")
 public class StockReceiptController {
 
     private final StockReceiptService service;
