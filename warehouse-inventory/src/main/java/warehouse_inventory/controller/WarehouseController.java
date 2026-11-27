@@ -10,7 +10,6 @@ import warehouse_inventory.service.WarehouseService;
 
 @RestController
 @RequestMapping("/api/warehouses")
-@CrossOrigin(origins = "http://localhost:4200")
 public class WarehouseController {
 
     private final WarehouseService service;
