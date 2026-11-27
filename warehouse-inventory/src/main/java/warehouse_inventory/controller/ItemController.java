@@ -10,7 +10,6 @@ import warehouse_inventory.service.ItemService;
 
 @RestController
 @RequestMapping("/api/items")
-@CrossOrigin(origins = "http://localhost:4200")
 public class ItemController {
 
     private final ItemService service;
