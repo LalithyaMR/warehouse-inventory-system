@@ -14,17 +14,10 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins(
-                        "http://localhost:4200",
-                        "https://warehouse-inventory-system-wheat.vercel.app",
-                        frontendUrl
-                )
+        registry.addMapping("/**")
+            .allowedOriginPatterns("*")
+            .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+            .allowedHeaders("*");
+}
 
-                .allowedMethods(
-                        "GET", "POST", "PUT",
-                        "DELETE", "OPTIONS"
-                )
-                .allowedHeaders("*");
-    }
 }
